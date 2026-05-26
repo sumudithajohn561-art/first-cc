@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pomodoro Timer</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <div id="app-container">
+    <header id="header">
+      <div id="header-left">
+        <h1>Pomodoro Timer</h1>
+        <button id="btn-toggle-settings" class="btn-icon" title="Settings">⚙</button>
+      </div>
+      <div id="header-right">
+        <span id="active-task-label"></span>
+        <span id="session-badge" class="badge-focus">Focus</span>
+      </div>
+    </header>
+
+    <section id="timer-section">
+      <div class="timer-ring-container">
+        <svg class="progress-ring" width="160" height="160" viewBox="0 0 160 160">
+          <circle class="ring-bg" cx="80" cy="80" r="72" />
+          <circle class="ring-progress" id="progress-circle" cx="80" cy="80" r="72" />
+        </svg>
+        <div class="timer-display">
+          <span id="timer-minutes">25</span>:<span id="timer-seconds">00</span>
+        </div>
+      </div>
+      <div id="session-counter">Session 1 / 4</div>
+      <div id="goal-progress" class="goal-progress">
+        <span id="goal-dots"></span>
+        <span id="goal-label"></span>
+      </div>
+      <div class="timer-controls">
+        <button id="btn-start" class="btn btn-primary">Start</button>
+        <button id="btn-pause" class="btn btn-secondary" disabled>Pause</button>
+        <button id="btn-reset" class="btn btn-outline">Reset</button>
+        <button id="btn-skip" class="btn btn-outline">Skip</button>
+        <button id="btn-distraction" class="btn btn-outline btn-sm" title="Record a distraction">Distraction (<span id="distraction-count">0</span>)</button>
+      </div>
+    </section>
+
+    <div class="stats-bar">
+      <div class="stat-item">
+        <span class="stat-value" id="stat-today">0</span>
+        <span class="stat-label">Today</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" id="stat-week">0</span>
+        <span class="stat-label">This Week</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" id="stat-total">0</span>
+        <span class="stat-label">All Time</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" id="focus-rating" style="font-size:1rem; letter-spacing:2px;">☆☆☆☆☆</span>
+        <span class="stat-label">Focus</span>
+      </div>
+    </div>
+
+    <div id="panels">
+      <section id="tasks-panel" class="panel">
+        <div class="panel-header">
+          <h2>Tasks</h2>
+          <span id="task-count" class="count-badge">0</span>
+        </div>
+        <div class="task-actions">
+          <button id="btn-sync-obsidian" class="btn btn-outline btn-sm">Sync from Obsidian</button>
+        </div>
+        <div class="task-table-wrap">
+          <table id="task-table">
+            <thead>
+              <tr>
+                <th class="col-check"></th>
+                <th class="col-time">Time</th>
+                <th class="col-pri">!</th>
+                <th class="col-task">Task</th>
+                <th class="col-pomos">🍅</th>
+                <th class="col-status">Status</th>
+                <th class="col-del"></th>
+              </tr>
+            </thead>
+            <tbody id="task-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+
+  </div>
+
+  <!-- Quick Record Overlay -->
+  <div id="quick-record-overlay" class="overlay hidden">
+    <div class="quick-record-card">
+      <h3>What did you accomplish?</h3>
+      <textarea id="quick-record-input" placeholder="Jot down what you got done this session..." rows="3"></textarea>
+      <div class="quick-record-actions">
+        <button id="btn-quick-save" class="btn btn-primary btn-sm">Save</button>
+        <button id="btn-quick-skip" class="btn btn-outline btn-sm">Skip</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Overlay -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="quick-record-card" style="width:480px;">
+      <h3>Settings</h3>
+      <div class="settings-grid" style="max-width:none;">
+        <label>
+          Focus (min):
+          <input type="number" id="setting-focus" min="1" max="60" value="25">
+        </label>
+        <label>
+          Short Break (min):
+          <input type="number" id="setting-break" min="1" max="30" value="5">
+        </label>
+        <label>
+          Long Break (min):
+          <input type="number" id="setting-long-break" min="5" max="30" value="15">
+        </label>
+        <label>
+          Long Break Interval:
+          <input type="number" id="setting-interval" min="2" max="6" value="4">
+        </label>
+        <label style="flex-basis:100%;">
+          Obsidian Vault:
+          <input type="text" id="setting-vault" placeholder="e.g. E:\obsidian\MyVault">
+        </label>
+        <label style="flex-basis:100%;">
+          Daily Report Path:
+          <input type="text" id="setting-daily-path" placeholder="经验总结/日报">
+        </label>
+        <label>
+          Daily Focus Goal:
+          <input type="number" id="setting-daily-goal" min="1" max="24" value="12">
+        </label>
+        <label>
+          Reminder Time:
+          <input type="text" id="setting-reminder-time" placeholder="20:00" maxlength="5" style="width:100px;">
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task Review Overlay (read-only) -->
+  <div id="task-review-overlay" class="overlay hidden">
+    <div class="quick-record-card" style="width:520px;">
+      <h3 id="task-review-title"></h3>
+      <div style="display:flex;gap:16px;font-size:0.82rem;color:var(--text-muted);margin-bottom:4px;">
+        <span id="task-review-time"></span>
+        <span id="task-review-pomos"></span>
+      </div>
+      <div id="task-review-records" style="max-height:120px;overflow-y:auto;font-size:0.82rem;color:var(--text-muted);background:var(--bg-primary);border-radius:6px;padding:8px 12px;">
+      </div>
+      <!-- Study task: single summary -->
+      <div id="task-review-study-fields">
+        <label style="font-size:0.85rem;color:var(--text-muted);">完成总结</label>
+        <div id="task-review-summary" style="background:var(--bg-primary);border-radius:6px;padding:10px 12px;font-size:0.9rem;color:var(--text-primary);min-height:40px;"></div>
+      </div>
+      <!-- Work task: 4 structured read-only fields -->
+      <div id="task-review-work-fields" class="hidden">
+        <div class="structured-field">
+          <label class="structured-label">工作进展</label>
+          <div class="structured-readonly" id="task-review-progress"></div>
+        </div>
+        <div class="structured-field">
+          <label class="structured-label">问题与风险</label>
+          <div class="structured-readonly" id="task-review-issues"></div>
+        </div>
+        <div class="structured-field">
+          <label class="structured-label">后续行动计划</label>
+          <div class="structured-readonly" id="task-review-next-steps"></div>
+        </div>
+        <div class="structured-field">
+          <label class="structured-label">需协调资源事项</label>
+          <div class="structured-readonly" id="task-review-resources"></div>
+        </div>
+      </div>
+      <div class="quick-record-actions">
+        <button id="btn-task-review-close" class="btn btn-outline btn-sm">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task Completion Overlay -->
+  <div id="task-complete-overlay" class="overlay hidden">
+    <div class="quick-record-card" style="width:520px;">
+      <h3 id="task-complete-title">Task Complete</h3>
+      <div id="task-complete-records" style="max-height:120px;overflow-y:auto;font-size:0.82rem;color:var(--text-muted);background:var(--bg-primary);border-radius:6px;padding:8px 12px;">
+      </div>
+      <!-- Study task: single summary -->
+      <div id="task-complete-study-fields">
+        <label style="font-size:0.85rem;color:var(--text-muted);">完成总结</label>
+        <textarea id="task-complete-summary" placeholder="Write a summary of what you accomplished..." rows="3"></textarea>
+      </div>
+      <!-- Work task: 4 structured fields -->
+      <div id="task-complete-work-fields" class="hidden">
+        <div class="structured-field">
+          <label class="structured-label">工作进展</label>
+          <textarea id="task-field-progress" placeholder="This session's progress..." rows="2"></textarea>
+        </div>
+        <div class="structured-field">
+          <label class="structured-label">问题与风险</label>
+          <textarea id="task-field-issues" placeholder="Issues or risks encountered..." rows="2"></textarea>
+        </div>
+        <div class="structured-field">
+          <label class="structured-label">后续行动计划</label>
+          <textarea id="task-field-next-steps" placeholder="Follow-up action plan..." rows="2"></textarea>
+        </div>
+        <div class="structured-field">
+          <label class="structured-label">需协调资源事项</label>
+          <textarea id="task-field-resources" placeholder="Resources needed for coordination..." rows="2"></textarea>
+        </div>
+      </div>
+      <div class="quick-record-actions">
+        <button id="btn-task-complete-save" class="btn btn-primary btn-sm">Save</button>
+        <button id="btn-task-complete-cancel" class="btn btn-outline btn-sm">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="scripts/tasks.js"></script>
+  <script src="scripts/stats.js"></script>
+  <script src="scripts/timer.js"></script>
+  <script src="scripts/sync.js"></script>
+  <script src="scripts/app.js"></script>
+</body>
+</html>

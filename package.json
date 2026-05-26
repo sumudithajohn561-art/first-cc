@@ -1,0 +1,15 @@
+{
+  "name": "pomodoro-timer",
+  "version": "1.0.0",
+  "description": "A desktop Pomodoro Timer with task management and statistics",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": ["pomodoro", "timer", "productivity"],
+  "author": "sumudithajohn561-art <sumudithajohn561@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^42.2.0"
+  }
+}

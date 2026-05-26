@@ -1,0 +1,646 @@
+/* === CSS Custom Properties === */
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-card: #0f3460;
+  --bg-hover: #1a4a7a;
+  --text-primary: #eee;
+  --text-muted: #a0a0b0;
+  --accent-focus: #e94560;
+  --accent-break: #4ecca3;
+  --accent-long-break: #3b82f6;
+  --danger: #ff6b6b;
+  --border-color: #2a2a4a;
+  --border-radius: 8px;
+  --font-mono: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* === Reset === */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input, select, button { font-family: var(--font-sans); }
+
+/* === Layout === */
+#app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 12px 24px;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+/* === Header === */
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#header h1 {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  transition: color 0.2s, background 0.2s;
+  line-height: 1;
+}
+
+.btn-icon:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+#header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#active-task-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#session-badge {
+  padding: 4px 16px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-focus { background: var(--accent-focus); }
+.badge-break { background: var(--accent-break); color: #111; }
+.badge-long-break { background: var(--accent-long-break); }
+
+/* === Timer Section === */
+#timer-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.timer-ring-container {
+  position: relative;
+  width: 160px;
+  height: 160px;
+}
+
+.progress-ring {
+  transform: rotate(-90deg);
+}
+
+.ring-bg {
+  fill: none;
+  stroke: var(--border-color);
+  stroke-width: 7;
+}
+
+.ring-progress {
+  fill: none;
+  stroke: var(--accent-focus);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-dasharray: 502.65;
+  stroke-dashoffset: 0;
+  transition: stroke 0.3s;
+}
+
+.ring-progress.break { stroke: var(--accent-break); }
+.ring-progress.long-break { stroke: var(--accent-long-break); }
+
+.timer-display {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+#session-counter {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* === Controls === */
+.timer-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: var(--border-radius);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-sm { padding: 6px 14px; font-size: 0.82rem; }
+
+.btn-primary { background: var(--accent-focus); color: #fff; }
+.btn-primary:hover:not(:disabled) { opacity: 0.85; }
+
+.btn-secondary { background: var(--accent-break); color: #111; }
+.btn-secondary:hover:not(:disabled) { opacity: 0.85; }
+
+.btn-outline {
+  background: transparent;
+  border: 2px solid var(--border-color);
+  color: var(--text-primary);
+}
+.btn-outline:hover:not(:disabled) { background: var(--bg-secondary); }
+
+/* === Panels === */
+#panels {
+  display: flex;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+
+.panel {
+  flex: 1;
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 250px;
+}
+
+#tasks-panel { flex: 1; }
+
+/* === Stats Bar === */
+.stats-bar {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  padding: 2px 0;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  padding: 8px 18px;
+}
+
+.stat-item .stat-value {
+  font-family: var(--font-mono);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent-focus);
+}
+
+.stat-item .stat-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.panel-header h2 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.count-badge {
+  background: var(--bg-card);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* === Task Actions === */
+.task-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+/* === Task Table === */
+.task-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+#task-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+#task-table thead {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  z-index: 1;
+}
+
+#task-table th {
+  text-align: left;
+  padding: 6px 6px 8px 6px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+#task-table td {
+  padding: 6px;
+  vertical-align: middle;
+}
+
+#task-table tbody tr {
+  border-bottom: 1px solid rgba(42, 42, 74, 0.4);
+  transition: background 0.15s;
+  cursor: pointer;
+}
+
+.task-section-divider {
+  cursor: default !important;
+  border-bottom: none !important;
+}
+
+.task-section-divider td {
+  padding: 10px 6px 4px 6px !important;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-focus);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-bottom: 1px solid var(--accent-focus);
+}
+
+#task-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+#task-table tbody tr.active-task {
+  background: rgba(233, 69, 96, 0.15);
+  border-left: 3px solid var(--accent-focus);
+}
+
+#task-table tbody tr.task-done {
+  opacity: 0.55;
+}
+
+.col-check { width: 28px; text-align: center; }
+.col-time { width: 96px; }
+.col-pri { width: 28px; text-align: center; }
+.col-task { }
+.col-pomos { width: 56px; text-align: center; }
+#task-table th.col-pomos { text-align: center; }
+.col-status { width: 64px; text-align: center; font-size: 0.78rem; }
+.col-del { width: 28px; text-align: center; }
+
+.task-checkbox {
+  width: 16px; height: 16px;
+  accent-color: var(--accent-break);
+  cursor: pointer;
+}
+
+.cell-time {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cell-pri { text-align: center; font-size: 0.9rem; }
+
+.cell-task {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-task.completed {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.cell-pomos {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.cell-status {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-active { color: var(--accent-focus); }
+.status-pending { color: var(--text-muted); }
+.status-done { color: var(--accent-break); }
+
+.btn-task-del {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+#task-table tbody tr:hover .btn-task-del { opacity: 1; }
+.btn-task-del:hover { background: rgba(255, 107, 107, 0.15); }
+
+#task-tbody:empty::after {
+  content: 'No tasks yet. Click "+ New Task" or sync from Obsidian.';
+  display: block;
+  text-align: center;
+  color: var(--text-muted);
+  padding: 30px 0;
+  font-size: 0.85rem;
+}
+
+
+/* === Settings === */
+.settings-grid {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+  background: var(--bg-secondary);
+  padding: 16px 24px;
+  border-radius: var(--border-radius);
+  max-width: 600px;
+}
+
+.settings-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.settings-grid input {
+  width: 80px;
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  text-align: center;
+  outline: none;
+}
+
+.settings-grid input[type="text"] {
+  font-family: var(--font-sans);
+  text-align: left;
+  width: 280px;
+}
+
+.settings-grid input:focus {
+  border-color: var(--accent-focus);
+}
+
+/* === Goal Progress === */
+.goal-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.goal-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin: 0 2px;
+  background: var(--border-color);
+  transition: background 0.3s;
+}
+
+.goal-dot.filled { background: var(--accent-focus); }
+.goal-dot.overflow { background: var(--danger); }
+
+/* === Distraction Button === */
+#btn-distraction {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+#btn-distraction:hover { opacity: 1; }
+
+#btn-distraction.flash {
+  animation: distraction-pulse 0.4s ease;
+}
+
+@keyframes distraction-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); background: var(--danger); color: #fff; }
+}
+
+/* === Quick Record Overlay === */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.hidden {
+  display: none;
+}
+
+.quick-record-card {
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  padding: 24px;
+  width: 420px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.quick-record-card h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.quick-record-card textarea {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  padding: 10px 12px;
+  resize: vertical;
+  outline: none;
+}
+
+.quick-record-card textarea:focus {
+  border-color: var(--accent-focus);
+}
+
+.quick-record-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* === Task Complete Modal === */
+#task-complete-records:empty::after {
+  content: 'No session records for this task.';
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.task-record-item {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(42, 42, 74, 0.3);
+  font-size: 0.8rem;
+}
+
+.task-record-item:last-child {
+  border-bottom: none;
+}
+
+.task-record-time {
+  font-family: var(--font-mono);
+  color: var(--accent-focus);
+  margin-right: 6px;
+}
+
+/* === Structured Fields (Work Task Completion) === */
+.structured-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.structured-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.structured-field textarea {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  resize: vertical;
+  outline: none;
+}
+
+.structured-field textarea:focus {
+  border-color: var(--accent-focus);
+}
+
+.structured-readonly {
+  background: var(--bg-primary);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  min-height: 36px;
+}
+
+/* === Scrollbar === */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
