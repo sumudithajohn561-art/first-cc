@@ -53,7 +53,10 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  startObsidianMonitor();
+});
 
 app.on('window-all-closed', () => {
   app.quit();
@@ -64,6 +67,42 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
+// --- Obsidian process binding ---
+let obsidianMonitorInterval = null;
+let obsidianWasRunning = false;
+
+function isObsidianRunning() {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('tasklist /FI "IMAGENAME eq Obsidian.exe" /NH', { encoding: 'utf-8' });
+    return result.includes('Obsidian.exe');
+  } catch {
+    return false;
+  }
+}
+
+function startObsidianMonitor() {
+  if (obsidianMonitorInterval) clearInterval(obsidianMonitorInterval);
+  obsidianWasRunning = isObsidianRunning();
+  obsidianMonitorInterval = setInterval(() => {
+    const running = isObsidianRunning();
+    if (obsidianWasRunning && !running) {
+      // Obsidian was closed — gracefully quit Pomodoro
+      if (mainWindow) {
+        mainWindow.webContents.send('obsidian-closed');
+        // Delay quit to allow renderer to save state
+        setTimeout(() => {
+          isQuitting = true;
+          app.quit();
+        }, 500);
+      }
+      clearInterval(obsidianMonitorInterval);
+      obsidianMonitorInterval = null;
+    }
+    obsidianWasRunning = running;
+  }, 5000);
+}
 
 // IPC handlers
 ipcMain.handle('save-tasks', (_e, tasks) => { writeJSON('tasks.json', tasks); });
@@ -139,27 +178,39 @@ ipcMain.handle('write-report-file', (_e, vaultPath, dailyPath, dateStr, content)
   }
 });
 
-// --- File watcher (watches the daily report directory) ---
-let activeWatcher = null;
+// --- File watcher (polls the daily report file for changes) ---
+let activeWatchInterval = null;
+let activeWatchPath = null;
+let activeWatchMtime = 0;
 
 ipcMain.handle('watch-report-file', (_e, vaultPath, dailyPath, dateStr) => {
-  if (activeWatcher) {
-    activeWatcher.close();
-    activeWatcher = null;
+  if (activeWatchInterval) {
+    clearInterval(activeWatchInterval);
+    activeWatchInterval = null;
   }
-  const dir = path.join(vaultPath, dailyPath);
-  if (!fs.existsSync(dir)) return false;
-  activeWatcher = fs.watch(dir, (_eventType, filename) => {
-    if (filename === `${dateStr}.md` && mainWindow) {
-      mainWindow.webContents.send('file-changed', dateStr);
-    }
-  });
+  const filePath = getReportPath(vaultPath, dailyPath, dateStr);
+  if (!fs.existsSync(filePath)) return false;
+  activeWatchPath = filePath;
+  activeWatchMtime = fs.statSync(filePath).mtimeMs;
+  activeWatchInterval = setInterval(() => {
+    try {
+      if (!fs.existsSync(activeWatchPath)) return;
+      const mtime = fs.statSync(activeWatchPath).mtimeMs;
+      if (mtime > activeWatchMtime) {
+        activeWatchMtime = mtime;
+        if (mainWindow) {
+          mainWindow.webContents.send('file-changed', dateStr);
+        }
+      }
+    } catch { /* file may be temporarily locked */ }
+  }, 2000);
   return true;
 });
 
 ipcMain.handle('unwatch-file', () => {
-  if (activeWatcher) {
-    activeWatcher.close();
-    activeWatcher = null;
+  if (activeWatchInterval) {
+    clearInterval(activeWatchInterval);
+    activeWatchInterval = null;
   }
+  activeWatchPath = null;
 });

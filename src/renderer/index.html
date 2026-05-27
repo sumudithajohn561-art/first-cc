@@ -14,6 +14,7 @@
         <button id="btn-toggle-settings" class="btn-icon" title="Settings">⚙</button>
       </div>
       <div id="header-right">
+        <span id="current-date"></span>
         <span id="active-task-label"></span>
         <span id="session-badge" class="badge-focus">Focus</span>
       </div>
@@ -141,6 +142,10 @@
         <label>
           Reminder Time:
           <input type="text" id="setting-reminder-time" placeholder="20:00" maxlength="5" style="width:100px;">
+        </label>
+        <label>
+          Task Warning (min):
+          <input type="number" id="setting-task-reminder" min="1" max="30" value="5" style="width:80px;">
         </label>
       </div>
     </div>

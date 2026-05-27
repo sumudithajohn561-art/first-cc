@@ -11,6 +11,8 @@ let currentSyncDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 let dailyGoal = 12;
 let reminderTime = '';
 let reminderFiredToday = false;
+let taskReminderMinutes = 5;
+let _taskReminderFiredForTask = null;
 
 // === DOM refs ===
 const el = {
@@ -19,6 +21,7 @@ const el = {
   progressCircle: document.getElementById('progress-circle'),
   sessionBadge: document.getElementById('session-badge'),
   sessionCounter: document.getElementById('session-counter'),
+  currentDate: document.getElementById('current-date'),
   activeTaskLabel: document.getElementById('active-task-label'),
   btnStart: document.getElementById('btn-start'),
   btnPause: document.getElementById('btn-pause'),
@@ -41,6 +44,7 @@ const el = {
   settingDailyPath: document.getElementById('setting-daily-path'),
   settingDailyGoal: document.getElementById('setting-daily-goal'),
   settingReminderTime: document.getElementById('setting-reminder-time'),
+  settingTaskReminder: document.getElementById('setting-task-reminder'),
   goalDots: document.getElementById('goal-dots'),
   goalLabel: document.getElementById('goal-label'),
   btnDistraction: document.getElementById('btn-distraction'),
@@ -88,6 +92,7 @@ timer.onTick = () => {
   const offset = RING_CIRCUMFERENCE * (1 - timer.percentRemaining);
   el.progressCircle.style.strokeDashoffset = offset;
   document.title = `${el.timerMins.textContent}:${el.timerSecs.textContent} - Pomodoro`;
+  checkTaskReminder();
 };
 
 timer.onSessionChange = () => {
@@ -199,13 +204,13 @@ function autoMatchTask() {
   renderTasks();
 }
 
-el.btnStart.addEventListener('click', () => { autoMatchTask(); timer.start(); updateButtonStates(); updateActiveTaskLabel(); });
+el.btnStart.addEventListener('click', () => { autoMatchTask(); _taskReminderFiredForTask = null; timer.start(); updateButtonStates(); updateActiveTaskLabel(); });
 el.btnPause.addEventListener('click', () => {
-  if (timer.state === 'paused') timer.resume();
+  if (timer.state === 'paused') { _taskReminderFiredForTask = null; timer.resume(); }
   else timer.pause();
   updateButtonStates();
 });
-el.btnReset.addEventListener('click', () => { timer.reset(); updateButtonStates(); updateActiveTaskLabel(); });
+el.btnReset.addEventListener('click', () => { _taskReminderFiredForTask = null; timer.reset(); updateButtonStates(); updateActiveTaskLabel(); });
 el.btnSkip.addEventListener('click', () => { timer.skip(); updateButtonStates(); updateActiveTaskLabel(); });
 
 // ====================================================================
@@ -235,6 +240,12 @@ function playTickSound() {
 function timeSlotToMinutes(ts) {
   if (!ts) return 0;
   const m = ts.match(/^(\d{1,2}):(\d{2})/);
+  return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
+}
+
+function timeSlotToEndMinutes(ts) {
+  if (!ts) return 0;
+  const m = ts.match(/(\d{1,2}):(\d{2})$/);
   return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
 }
 
@@ -268,8 +279,14 @@ function renderTasks() {
         if (task.timeSlot) {
           const cur = new Date().getHours() * 60 + new Date().getMinutes();
           const start = timeSlotToMinutes(task.timeSlot);
+          const end = timeSlotToEndMinutes(task.timeSlot);
           if (cur < start) {
             pomodoroAPI.notify('任务未开启', `${task.text}\n时间段: ${task.timeSlot}`);
+            cb.checked = false;
+            return;
+          }
+          if (cur > end && task.completedPomodoros === 0) {
+            pomodoroAPI.notify('任务已过期', `${task.text}\n该任务未完成任何番茄，请删除或重新安排时间`);
             cb.checked = false;
             return;
           }
@@ -677,6 +694,41 @@ function rateToStars(rate) {
 }
 
 // ====================================================================
+//  DATE DISPLAY
+// ====================================================================
+
+function updateDateDisplay() {
+  const now = new Date();
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const dateStr = now.toISOString().slice(0, 10);
+  const weekday = weekdays[now.getDay()];
+  el.currentDate.textContent = `${dateStr} ${weekday}`;
+}
+
+// ====================================================================
+//  TASK DEADLINE REMINDER
+// ====================================================================
+
+function checkTaskReminder() {
+  if (timer.state !== 'running' || !activeTaskId || !taskReminderMinutes) return;
+  const task = taskManager.tasks.find(t => t.id === activeTaskId);
+  if (!task || !task.timeSlot || task.completed) {
+    _taskReminderFiredForTask = null;
+    return;
+  }
+  const end = timeSlotToEndMinutes(task.timeSlot);
+  if (!end) return;
+  const cur = new Date().getHours() * 60 + new Date().getMinutes();
+  const remaining = end - cur;
+  if (remaining <= taskReminderMinutes && remaining > 0) {
+    if (_taskReminderFiredForTask !== task.id) {
+      _taskReminderFiredForTask = task.id;
+      pomodoroAPI.notify('任务即将到期', `${task.text}\n还有约 ${remaining} 分钟 (${task.timeSlot} 截止)`);
+    }
+  }
+}
+
+// ====================================================================
 //  DAILY REMINDER
 // ====================================================================
 
@@ -720,6 +772,14 @@ el.settingReminderTime.addEventListener('change', async () => {
   reminderTime = /^\d{2}:\d{2}$/.test(val) ? val : '';
   await pomodoroAPI.setSetting('reminderTime', reminderTime);
   reminderFiredToday = false;
+});
+
+el.settingTaskReminder.addEventListener('change', async () => {
+  const v = Math.max(1, Math.min(30, parseInt(el.settingTaskReminder.value) || 5));
+  el.settingTaskReminder.value = v;
+  taskReminderMinutes = v;
+  await pomodoroAPI.setSetting('taskReminderMinutes', v);
+  _taskReminderFiredForTask = null;
 });
 
 function applySettings() {
@@ -824,11 +884,13 @@ async function init() {
   dailyGoal = await pomodoroAPI.getSetting('dailyGoal', 12);
   reminderTime = await pomodoroAPI.getSetting('reminderTime', '');
   if (reminderTime && !/^\d{2}:\d{2}$/.test(reminderTime)) reminderTime = '';
+  taskReminderMinutes = await pomodoroAPI.getSetting('taskReminderMinutes', 5);
 
   el.settingVault.value = vaultPath;
   el.settingDailyPath.value = dailyPath;
   el.settingDailyGoal.value = dailyGoal;
   el.settingReminderTime.value = reminderTime;
+  el.settingTaskReminder.value = taskReminderMinutes;
 
   markdownSync = new MarkdownSync(taskManager, vaultPath, dailyPath);
   markdownSync.onTasksChanged = () => renderTasks();
@@ -846,6 +908,7 @@ async function init() {
   renderStats();
   renderGoalProgress();
   renderDistractionCount();
+  updateDateDisplay();
   updateButtonStates();
   updateActiveTaskLabel();
   if (timer.onTick) timer.onTick();
@@ -858,6 +921,7 @@ async function init() {
     if (today !== currentSyncDate) {
       currentSyncDate = today;
       reminderFiredToday = false;
+      updateDateDisplay();
       if (markdownSync && markdownSync.vaultPath) {
         markdownSync.switchDate(today);
       }

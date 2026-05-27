@@ -85,6 +85,13 @@ input, select, button { font-family: var(--font-sans); }
   gap: 12px;
 }
 
+#current-date {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 #active-task-label {
   font-size: 0.85rem;
   color: var(--text-muted);

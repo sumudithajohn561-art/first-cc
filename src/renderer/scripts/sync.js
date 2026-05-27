@@ -72,15 +72,20 @@ class MarkdownSync {
           task.totalPomodoros = rescheduled ? task.totalPomodoros : (existing.totalPomodoros || task.totalPomodoros);
           task.estimatedMinutes = rescheduled ? task.estimatedMinutes : (existing.estimatedMinutes || task.estimatedMinutes);
 
-          // If rescheduled, clear completion state; otherwise preserve Pomodoro's state
+          // If rescheduled, clear completion state
           if (rescheduled && existing.completed && !completed) {
             task.completed = false;
             task.completedAt = null;
             task.completedDate = null;
           } else if (!completed && existing.completed) {
-            task.completed = true;
-            task.completedAt = existing.completedAt;
-            task.completedDate = existing.completedDate;
+            // Only preserve local completion if markdown still has ✅ date;
+            // if user removed both [x] and ✅, they intentionally unchecked in Obsidian
+            if (task.completedDate) {
+              task.completed = true;
+              task.completedAt = existing.completedAt;
+              task.completedDate = existing.completedDate;
+            }
+            // else: markdown is authoritative — keep completed=false
           }
         }
 
@@ -181,16 +186,18 @@ class MarkdownSync {
     if (!md || md.trim() === '') return false;
     const parsed = this.parseMarkdown(md);
 
-    // Push locally-completed tasks to Obsidian if they're still unchecked there
+    // Obsidian checkbox state is authoritative — update local state to match
     for (const pTask of parsed) {
       const local = this.taskManager.tasks.find(t => t.id === pTask.id);
-      if (local && local.completed && !pTask.completed) {
-        this._suppressWatch = true;
-        await this.writeTaskCheckbox(dateStr, local, true);
-        setTimeout(() => { this._suppressWatch = false; }, 500);
-        pTask.completed = true;
-        pTask.completedAt = local.completedAt;
-        pTask.completedDate = local.completedDate;
+      if (local) {
+        if (!pTask.completed && local.completed) {
+          // User unchecked in Obsidian — revert local completion
+          local.completed = false;
+          local.completedAt = null;
+          local.completedDate = null;
+          local.summary = null;
+          this.taskManager._save();
+        }
       }
     }
 
