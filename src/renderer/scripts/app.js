@@ -13,6 +13,28 @@ let reminderTime = '';
 let reminderFiredToday = false;
 let taskReminderMinutes = 5;
 let _taskReminderFiredForTask = null;
+let _idleGentleFiredForTask = null;
+let _idleUrgentFiredForTask = null;
+let _idleUrgentShown = false;
+let isMiniMode = false;
+let autoContinue = false;
+let _breakTipIndex = 0;
+let _breakTipInterval = null;
+let taskStartReminderMinutes = 5;
+let _upcomingTaskRemindedFor = null;
+
+const BREAK_TIPS = [
+  '站起来走动一下，活动筋骨',
+  '看看窗外远处 20 秒，放松眼睛',
+  '喝杯水，补充水分',
+  '做几个肩部拉伸，缓解肩颈疲劳',
+  '深呼吸 5 次，让大脑充分休息',
+  '闭眼休息 30 秒，缓解眼疲劳',
+  '站起来扭扭腰，活动脊椎',
+  '整理一下桌面，保持整洁',
+  '想想接下来要做的事，做好准备',
+  '做几个深蹲，促进血液循环',
+];
 
 // === DOM refs ===
 const el = {
@@ -45,12 +67,14 @@ const el = {
   settingDailyGoal: document.getElementById('setting-daily-goal'),
   settingReminderTime: document.getElementById('setting-reminder-time'),
   settingTaskReminder: document.getElementById('setting-task-reminder'),
+  settingTaskStartReminder: document.getElementById('setting-task-start-reminder'),
   goalDots: document.getElementById('goal-dots'),
   goalLabel: document.getElementById('goal-label'),
   btnDistraction: document.getElementById('btn-distraction'),
   distractionCount: document.getElementById('distraction-count'),
   quickRecordOverlay: document.getElementById('quick-record-overlay'),
   quickRecordInput: document.getElementById('quick-record-input'),
+  quickRecordOvertimeHint: document.getElementById('quick-record-overtime-hint'),
   btnQuickSave: document.getElementById('btn-quick-save'),
   btnQuickSkip: document.getElementById('btn-quick-skip'),
   taskCompleteOverlay: document.getElementById('task-complete-overlay'),
@@ -78,6 +102,14 @@ const el = {
   taskReviewNextSteps: document.getElementById('task-review-next-steps'),
   taskReviewResources: document.getElementById('task-review-resources'),
   btnTaskReviewClose: document.getElementById('btn-task-review-close'),
+  btnToggleMini: document.getElementById('btn-toggle-mini'),
+  miniBar: document.getElementById('mini-bar'),
+  miniTimer: document.getElementById('mini-timer'),
+  miniBadge: document.getElementById('mini-badge'),
+  miniTaskLabel: document.getElementById('mini-task-label'),
+  btnMiniRestore: document.getElementById('btn-mini-restore'),
+  autoContinueCheckbox: document.getElementById('auto-continue-checkbox'),
+  breakTip: document.getElementById('break-tip'),
 };
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 80;
@@ -89,6 +121,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 80;
 timer.onTick = () => {
   el.timerMins.textContent = String(timer.minutes).padStart(2, '0');
   el.timerSecs.textContent = String(timer.seconds).padStart(2, '0');
+  el.miniTimer.textContent = `${String(timer.minutes).padStart(2, '0')}:${String(timer.seconds).padStart(2, '0')}`;
   const offset = RING_CIRCUMFERENCE * (1 - timer.percentRemaining);
   el.progressCircle.style.strokeDashoffset = offset;
   document.title = `${el.timerMins.textContent}:${el.timerSecs.textContent} - Pomodoro`;
@@ -103,10 +136,13 @@ timer.onSessionChange = () => {
   el.sessionBadge.className =
     timer.sessionType === 'focus' ? 'badge-focus' :
     timer.sessionType === 'break' ? 'badge-break' : 'badge-long-break';
+  el.miniBadge.textContent = el.sessionBadge.textContent;
+  el.miniBadge.className = el.sessionBadge.className;
   el.progressCircle.classList.toggle('break', timer.sessionType === 'break');
   el.progressCircle.classList.toggle('long-break', timer.sessionType === 'longBreak');
   updateButtonStates();
   updateActiveTaskLabel();
+  updateBreakTip();
 };
 
 timer.onDone = (sessionType, minutes) => {
@@ -136,6 +172,15 @@ timer.onDone = (sessionType, minutes) => {
       if (sessionType === 'focus') {
         showQuickRecord();
         syncFrontmatterToObsidian();
+      } else if (autoContinue) {
+        // Auto-start next session after break
+        setTimeout(() => {
+          autoMatchTask();
+          _resetReminders();
+          timer.start();
+          updateButtonStates();
+          updateActiveTaskLabel();
+        }, 500);
       }
     }
   }, 3000);
@@ -169,6 +214,7 @@ function updateActiveTaskLabel() {
   } else {
     el.activeTaskLabel.textContent = '';
   }
+  updateMiniTaskLabel();
 }
 
 // ====================================================================
@@ -204,13 +250,21 @@ function autoMatchTask() {
   renderTasks();
 }
 
-el.btnStart.addEventListener('click', () => { autoMatchTask(); _taskReminderFiredForTask = null; timer.start(); updateButtonStates(); updateActiveTaskLabel(); });
+function _resetReminders() {
+  _taskReminderFiredForTask = null;
+  _idleGentleFiredForTask = null;
+  _idleUrgentFiredForTask = null;
+  _idleUrgentShown = false;
+  _upcomingTaskRemindedFor = null;
+}
+
+el.btnStart.addEventListener('click', () => { autoMatchTask(); _resetReminders(); timer.start(); updateButtonStates(); updateActiveTaskLabel(); });
 el.btnPause.addEventListener('click', () => {
-  if (timer.state === 'paused') { _taskReminderFiredForTask = null; timer.resume(); }
+  if (timer.state === 'paused') { _resetReminders(); timer.resume(); }
   else timer.pause();
   updateButtonStates();
 });
-el.btnReset.addEventListener('click', () => { _taskReminderFiredForTask = null; timer.reset(); updateButtonStates(); updateActiveTaskLabel(); });
+el.btnReset.addEventListener('click', () => { _resetReminders(); timer.reset(); updateButtonStates(); updateActiveTaskLabel(); });
 el.btnSkip.addEventListener('click', () => { timer.skip(); updateButtonStates(); updateActiveTaskLabel(); });
 
 // ====================================================================
@@ -330,12 +384,19 @@ function renderTasks() {
     if (task.completed) {
       tdStatus.textContent = 'Done';
       tdStatus.classList.add('status-done');
-    } else if (task.id === activeTaskId && timer.state === 'running') {
-      tdStatus.textContent = 'Running';
-      tdStatus.classList.add('status-active');
-    } else if (task.id === activeTaskId && timer.state === 'paused') {
-      tdStatus.textContent = 'Paused';
-      tdStatus.classList.add('status-active');
+    } else if (task.id === activeTaskId && (timer.state === 'running' || timer.state === 'paused')) {
+      const isOvertime = task.timeSlot && timeSlotToEndMinutes(task.timeSlot) > 0 &&
+        new Date().getHours() * 60 + new Date().getMinutes() > timeSlotToEndMinutes(task.timeSlot);
+      if (isOvertime) {
+        tdStatus.textContent = 'Overtime';
+        tdStatus.classList.add('status-overtime');
+      } else if (timer.state === 'running') {
+        tdStatus.textContent = 'Running';
+        tdStatus.classList.add('status-active');
+      } else {
+        tdStatus.textContent = 'Paused';
+        tdStatus.classList.add('status-active');
+      }
     } else {
       tdStatus.textContent = 'Pending';
       tdStatus.classList.add('status-pending');
@@ -384,16 +445,24 @@ function renderTasks() {
 //  SYNC FROM OBSIDIAN
 // ====================================================================
 
+let _syncFeedbackTimer = null;
+
 el.btnSyncObsidian.addEventListener('click', async () => {
   if (!markdownSync || !markdownSync.vaultPath) {
     alert('Please configure your Obsidian Vault path in Settings first.');
     return;
   }
+  clearTimeout(_syncFeedbackTimer);
+  el.btnSyncObsidian.textContent = 'Syncing...';
+  el.btnSyncObsidian.disabled = true;
   const ok = await markdownSync.readFromVault(currentSyncDate);
-  if (!ok) {
-    alert('No daily report found for today.\nExpected: ' + markdownSync.dailyPath + '/' + currentSyncDate + '.md');
-  }
   renderTasks();
+  el.btnSyncObsidian.textContent = ok ? 'Synced ✓' : 'No report found';
+  el.btnSyncObsidian.disabled = false;
+  _syncFeedbackTimer = setTimeout(() => {
+    el.btnSyncObsidian.textContent = 'Sync from Obsidian';
+    _syncFeedbackTimer = null;
+  }, 5000);
 });
 
 // ====================================================================
@@ -466,13 +535,45 @@ function showQuickRecord() {
   _pendingQuickRecordTaskId = activeTaskId;
   el.quickRecordOverlay.classList.remove('hidden');
   el.quickRecordInput.value = '';
+  // Show overtime hint if active task has exceeded its time slot
+  if (activeTaskId) {
+    const task = taskManager.tasks.find(t => t.id === activeTaskId);
+    if (task && task.timeSlot) {
+      const end = timeSlotToEndMinutes(task.timeSlot);
+      const cur = new Date().getHours() * 60 + new Date().getMinutes();
+      if (end > 0 && cur > end) {
+        const overtimeMins = cur - end;
+        el.quickRecordOvertimeHint.textContent = `该任务超时约 ${overtimeMins} 分钟完成，建议在 Obsidian 中更新时间段`;
+        el.quickRecordOvertimeHint.classList.remove('hidden');
+      } else {
+        el.quickRecordOvertimeHint.classList.add('hidden');
+      }
+    } else {
+      el.quickRecordOvertimeHint.classList.add('hidden');
+    }
+  } else {
+    el.quickRecordOvertimeHint.classList.add('hidden');
+  }
   el.quickRecordInput.focus();
 }
 
 function hideQuickRecord() {
   el.quickRecordOverlay.classList.add('hidden');
   el.quickRecordInput.value = '';
+  el.quickRecordOvertimeHint.classList.add('hidden');
   _pendingQuickRecordTaskId = null;
+}
+
+function _afterQuickRecord() {
+  hideQuickRecord();
+  if (autoContinue) {
+    setTimeout(() => {
+      _resetReminders();
+      timer.start();
+      updateButtonStates();
+      updateActiveTaskLabel();
+    }, 300);
+  }
 }
 
 el.btnQuickSave.addEventListener('click', () => {
@@ -480,11 +581,11 @@ el.btnQuickSave.addEventListener('click', () => {
   if (text) {
     statsTracker.recordQuickNote(text, _pendingQuickRecordTaskId);
   }
-  hideQuickRecord();
+  _afterQuickRecord();
 });
 
 el.btnQuickSkip.addEventListener('click', () => {
-  hideQuickRecord();
+  _afterQuickRecord();
 });
 
 el.quickRecordInput.addEventListener('keydown', (e) => {
@@ -725,6 +826,124 @@ function checkTaskReminder() {
       _taskReminderFiredForTask = task.id;
       pomodoroAPI.notify('任务即将到期', `${task.text}\n还有约 ${remaining} 分钟 (${task.timeSlot} 截止)`);
     }
+  } else if (remaining <= 0 && remaining >= -1) {
+    // Task time slot just ended but timer is still running
+    if (_taskReminderFiredForTask !== 'overtime-' + task.id) {
+      _taskReminderFiredForTask = 'overtime-' + task.id;
+      pomodoroAPI.notify('任务已超时', `${task.text}\n时间段 ${task.timeSlot} 已结束，计时仍在继续`);
+    }
+  }
+}
+
+// ====================================================================
+//  IDLE REMINDER — three-tier: gentle / urgent / deadline
+// ====================================================================
+
+function checkIdleReminder() {
+  const cur = new Date().getHours() * 60 + new Date().getMinutes();
+
+  // Check ALL incomplete tasks with time slots, not just the active one
+  for (const task of taskManager.tasks) {
+    if (task.completed || !task.timeSlot) continue;
+
+    const start = timeSlotToMinutes(task.timeSlot);
+    const end = timeSlotToEndMinutes(task.timeSlot);
+    if (!start || !end) continue;
+
+    const idleMinutes = cur - start;
+    const totalDuration = end - start;
+    const remaining = end - cur;
+
+    // Tier 1 — Gentle: time slot started 10+ min ago, timer not running
+    if (idleMinutes >= 10 && timer.state !== 'running' && remaining > 0) {
+      if (_idleGentleFiredForTask !== task.id) {
+        _idleGentleFiredForTask = task.id;
+        pomodoroAPI.notify(
+          '任务等待中',
+          `「${task.text}」已开始 ${idleMinutes} 分钟，还未启动计时，要开始专注吗？`
+        );
+      }
+    }
+
+    // Tier 2 — Urgent: ≤30% time remaining, zero pomodoros done, timer not running
+    if (remaining > 0 && remaining <= totalDuration * 0.3 && task.completedPomodoros === 0 && !_idleUrgentShown) {
+      if (_idleUrgentFiredForTask !== task.id) {
+        _idleUrgentFiredForTask = task.id;
+        _idleUrgentShown = true;
+        setTimeout(() => {
+          confirm(
+            `⏰ 任务即将到期！\n\n「${task.text}」仅剩 ${remaining} 分钟，番茄尚未开始。\n请立即开始专注！\n\n点击确定后请按 Start 开始计时。`
+          );
+          _idleUrgentShown = false;
+        }, 100);
+      }
+    }
+
+    // Stop after first matching task to avoid spam
+    if (_idleGentleFiredForTask || _idleUrgentFiredForTask) break;
+  }
+}
+
+// ====================================================================
+//  UPCOMING TASK REMINDER — warn before next task starts
+// ====================================================================
+
+function checkUpcomingTask() {
+  if (!taskStartReminderMinutes) return;
+  const now = new Date();
+  const cur = now.getHours() * 60 + now.getMinutes();
+
+  // Find incomplete tasks with future time slots, sorted by start time
+  const upcoming = taskManager.tasks
+    .filter(t => !t.completed && t.timeSlot)
+    .map(t => {
+      const start = timeSlotToMinutes(t.timeSlot);
+      return { task: t, start };
+    })
+    .filter(({ start }) => start > 0 && start > cur)
+    .sort((a, b) => a.start - b.start);
+
+  if (upcoming.length === 0) {
+    _upcomingTaskRemindedFor = null;
+    return;
+  }
+
+  const next = upcoming[0];
+  const remaining = next.start - cur;
+
+  if (remaining <= taskStartReminderMinutes && remaining > 0) {
+    if (_upcomingTaskRemindedFor !== next.task.id) {
+      _upcomingTaskRemindedFor = next.task.id;
+      const timeLabel = next.task.timeSlot
+        ? next.task.timeSlot.replace(/^0/, '').replace(/-0/, '-')
+        : '';
+      pomodoroAPI.notify(
+        '下一个任务即将开始',
+        `「${next.task.text}」将于 ${remaining} 分钟后开始${timeLabel ? '（' + timeLabel + '）' : ''}，请做好准备`
+      );
+    }
+  } else if (remaining > taskStartReminderMinutes) {
+    // Task is still far away, clear the reminder flag so it can fire later
+    _upcomingTaskRemindedFor = null;
+  }
+}
+
+// ====================================================================
+//  BREAK TIPS
+// ====================================================================
+
+function updateBreakTip() {
+  clearInterval(_breakTipInterval);
+  if (timer.sessionType === 'break' || timer.sessionType === 'longBreak') {
+    el.breakTip.textContent = BREAK_TIPS[_breakTipIndex % BREAK_TIPS.length];
+    el.breakTip.classList.remove('hidden');
+    _breakTipInterval = setInterval(() => {
+      _breakTipIndex++;
+      el.breakTip.textContent = BREAK_TIPS[_breakTipIndex % BREAK_TIPS.length];
+    }, 30000);
+  } else {
+    el.breakTip.classList.add('hidden');
+    _breakTipInterval = null;
   }
 }
 
@@ -754,6 +973,45 @@ el.settingsOverlay.addEventListener('click', (e) => {
   if (e.target === el.settingsOverlay) el.settingsOverlay.classList.add('hidden');
 });
 
+// ====================================================================
+//  MINI MODE
+// ====================================================================
+
+el.btnToggleMini.addEventListener('click', () => {
+  isMiniMode = !isMiniMode;
+  document.body.classList.toggle('mini-mode', isMiniMode);
+  el.miniBar.classList.toggle('hidden', !isMiniMode);
+  pomodoroAPI.setMiniMode(isMiniMode);
+  if (isMiniMode) {
+    el.miniTimer.textContent = `${String(timer.minutes).padStart(2, '0')}:${String(timer.seconds).padStart(2, '0')}`;
+    el.miniBadge.textContent = el.sessionBadge.textContent;
+    el.miniBadge.className = el.sessionBadge.className;
+    updateMiniTaskLabel();
+  }
+});
+
+el.btnMiniRestore.addEventListener('click', () => {
+  el.btnToggleMini.click();
+});
+
+function updateMiniTaskLabel() {
+  if (activeTaskId && timer.state === 'running') {
+    const task = taskManager.tasks.find(t => t.id === activeTaskId);
+    el.miniTaskLabel.textContent = task ? task.text : '';
+  } else {
+    el.miniTaskLabel.textContent = '';
+  }
+}
+
+// ====================================================================
+//  AUTO CONTINUE
+// ====================================================================
+
+el.autoContinueCheckbox.addEventListener('change', () => {
+  autoContinue = el.autoContinueCheckbox.checked;
+  localStorage.setItem('pomodoro-auto-continue', autoContinue ? '1' : '0');
+});
+
 el.settingFocus.addEventListener('change', () => applySettings());
 el.settingBreak.addEventListener('change', () => applySettings());
 el.settingLongBreak.addEventListener('change', () => applySettings());
@@ -779,7 +1037,15 @@ el.settingTaskReminder.addEventListener('change', async () => {
   el.settingTaskReminder.value = v;
   taskReminderMinutes = v;
   await pomodoroAPI.setSetting('taskReminderMinutes', v);
-  _taskReminderFiredForTask = null;
+  _resetReminders();
+});
+
+el.settingTaskStartReminder.addEventListener('change', async () => {
+  const v = Math.max(1, Math.min(30, parseInt(el.settingTaskStartReminder.value) || 5));
+  el.settingTaskStartReminder.value = v;
+  taskStartReminderMinutes = v;
+  await pomodoroAPI.setSetting('taskStartReminderMinutes', v);
+  _upcomingTaskRemindedFor = null;
 });
 
 function applySettings() {
@@ -885,12 +1151,17 @@ async function init() {
   reminderTime = await pomodoroAPI.getSetting('reminderTime', '');
   if (reminderTime && !/^\d{2}:\d{2}$/.test(reminderTime)) reminderTime = '';
   taskReminderMinutes = await pomodoroAPI.getSetting('taskReminderMinutes', 5);
+  taskStartReminderMinutes = await pomodoroAPI.getSetting('taskStartReminderMinutes', 5);
+
+  autoContinue = (localStorage.getItem('pomodoro-auto-continue') || '0') === '1';
+  el.autoContinueCheckbox.checked = autoContinue;
 
   el.settingVault.value = vaultPath;
   el.settingDailyPath.value = dailyPath;
   el.settingDailyGoal.value = dailyGoal;
   el.settingReminderTime.value = reminderTime;
   el.settingTaskReminder.value = taskReminderMinutes;
+  el.settingTaskStartReminder.value = taskStartReminderMinutes;
 
   markdownSync = new MarkdownSync(taskManager, vaultPath, dailyPath);
   markdownSync.onTasksChanged = () => renderTasks();
@@ -908,6 +1179,9 @@ async function init() {
   renderStats();
   renderGoalProgress();
   renderDistractionCount();
+  el.miniTimer.textContent = '25:00';
+  el.miniBadge.textContent = 'Focus';
+  el.miniBadge.className = 'badge-focus';
   updateDateDisplay();
   updateButtonStates();
   updateActiveTaskLabel();
@@ -921,6 +1195,7 @@ async function init() {
     if (today !== currentSyncDate) {
       currentSyncDate = today;
       reminderFiredToday = false;
+      _upcomingTaskRemindedFor = null;
       updateDateDisplay();
       if (markdownSync && markdownSync.vaultPath) {
         markdownSync.switchDate(today);
@@ -928,6 +1203,9 @@ async function init() {
     }
     checkReminder();
   }, 60000);
+
+  // Idle + upcoming task reminder check — runs every 30s independently of timer state
+  setInterval(() => { checkIdleReminder(); checkUpcomingTask(); }, 30000);
 }
 
 init();

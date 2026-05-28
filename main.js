@@ -104,11 +104,35 @@ function startObsidianMonitor() {
   }, 5000);
 }
 
+// Mini mode state
+let miniModeBounds = null;
+
 // IPC handlers
 ipcMain.handle('save-tasks', (_e, tasks) => { writeJSON('tasks.json', tasks); });
 ipcMain.handle('load-tasks', () => readJSON('tasks.json') || []);
 ipcMain.handle('save-stats', (_e, stats) => { writeJSON('stats.json', stats); });
 ipcMain.handle('load-stats', () => readJSON('stats.json') || { daily: {} });
+
+ipcMain.handle('set-mini-mode', (_e, enabled) => {
+  if (!mainWindow) return;
+  if (enabled) {
+    miniModeBounds = mainWindow.getBounds();
+    mainWindow.setMinimumSize(280, 50);
+    mainWindow.setSize(320, 70);
+    mainWindow.setAlwaysOnTop(true, 'floating');
+    mainWindow.center();
+  } else {
+    mainWindow.setAlwaysOnTop(false);
+    mainWindow.setMinimumSize(800, 500);
+    if (miniModeBounds) {
+      mainWindow.setBounds(miniModeBounds);
+      miniModeBounds = null;
+    } else {
+      mainWindow.setSize(1024, 680);
+      mainWindow.center();
+    }
+  }
+});
 
 ipcMain.on('show-notification', (_event, { title, body }) => {
   if (!Notification.isSupported()) return;
@@ -172,6 +196,36 @@ ipcMain.handle('write-report-file', (_e, vaultPath, dailyPath, dateStr, content)
   try {
     const filePath = getReportPath(vaultPath, dailyPath, dateStr);
     fs.writeFileSync(filePath, content, 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+// Create daily report from template if it doesn't exist
+ipcMain.handle('ensure-daily-report', (_e, vaultPath, dailyPath, dateStr) => {
+  try {
+    const reportPath = getReportPath(vaultPath, dailyPath, dateStr);
+    if (fs.existsSync(reportPath)) return true; // already exists
+
+    const templatePath = path.join(vaultPath, '通用', 'templates', 'Templates_daily.md');
+    if (!fs.existsSync(templatePath)) return false; // no template
+
+    let template = fs.readFileSync(templatePath, 'utf-8');
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const weekday = now.getDay();
+
+    // Fill frontmatter placeholders
+    template = template.replace(/^created:.*/m, `created: ${todayStr}T09:00:00`);
+    template = template.replace(/^Deadline:.*/m, `Deadline: ${todayStr}T23:59:00`);
+    template = template.replace(/^weekday:.*/m, `weekday: ${weekday}`);
+
+    // Ensure directory exists
+    const dir = path.dirname(reportPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    fs.writeFileSync(reportPath, template, 'utf-8');
     return true;
   } catch {
     return false;

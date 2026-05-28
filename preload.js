@@ -16,6 +16,10 @@ contextBridge.exposeInMainWorld('pomodoroAPI', {
   // Obsidian report (read-only)
   readReportFile: (vaultPath, dailyPath, dateStr) => ipcRenderer.invoke('read-report-file', vaultPath, dailyPath, dateStr),
   writeReportFile: (vaultPath, dailyPath, dateStr, content) => ipcRenderer.invoke('write-report-file', vaultPath, dailyPath, dateStr, content),
+  ensureDailyReport: (vaultPath, dailyPath, dateStr) => ipcRenderer.invoke('ensure-daily-report', vaultPath, dailyPath, dateStr),
+
+  // Mini mode
+  setMiniMode: (enabled) => ipcRenderer.invoke('set-mini-mode', enabled),
 
   // File watching
   watchReportFile: (vaultPath, dailyPath, dateStr) => ipcRenderer.invoke('watch-report-file', vaultPath, dailyPath, dateStr),

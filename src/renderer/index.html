@@ -12,6 +12,7 @@
       <div id="header-left">
         <h1>Pomodoro Timer</h1>
         <button id="btn-toggle-settings" class="btn-icon" title="Settings">⚙</button>
+        <button id="btn-toggle-mini" class="btn-icon" title="Mini Mode">⊟</button>
       </div>
       <div id="header-right">
         <span id="current-date"></span>
@@ -19,6 +20,14 @@
         <span id="session-badge" class="badge-focus">Focus</span>
       </div>
     </header>
+
+    <!-- Mini Mode Bar -->
+    <div id="mini-bar" class="hidden">
+      <span id="mini-timer" class="mini-timer">25:00</span>
+      <span id="mini-badge" class="badge-focus">Focus</span>
+      <span id="mini-task-label"></span>
+      <button id="btn-mini-restore" class="btn-icon" title="Restore">⤢</button>
+    </div>
 
     <section id="timer-section">
       <div class="timer-ring-container">
@@ -31,6 +40,7 @@
         </div>
       </div>
       <div id="session-counter">Session 1 / 4</div>
+      <div id="break-tip" class="break-tip hidden"></div>
       <div id="goal-progress" class="goal-progress">
         <span id="goal-dots"></span>
         <span id="goal-label"></span>
@@ -41,6 +51,10 @@
         <button id="btn-reset" class="btn btn-outline">Reset</button>
         <button id="btn-skip" class="btn btn-outline">Skip</button>
         <button id="btn-distraction" class="btn btn-outline btn-sm" title="Record a distraction">Distraction (<span id="distraction-count">0</span>)</button>
+        <label id="auto-continue-label" class="auto-continue-toggle" title="Auto-start next session after saving">
+          <input type="checkbox" id="auto-continue-checkbox">
+          <span>Auto</span>
+        </label>
       </div>
     </section>
 
@@ -98,6 +112,7 @@
   <div id="quick-record-overlay" class="overlay hidden">
     <div class="quick-record-card">
       <h3>What did you accomplish?</h3>
+      <div id="quick-record-overtime-hint" class="overtime-hint hidden"></div>
       <textarea id="quick-record-input" placeholder="Jot down what you got done this session..." rows="3"></textarea>
       <div class="quick-record-actions">
         <button id="btn-quick-save" class="btn btn-primary btn-sm">Save</button>
@@ -146,6 +161,10 @@
         <label>
           Task Warning (min):
           <input type="number" id="setting-task-reminder" min="1" max="30" value="5" style="width:80px;">
+        </label>
+        <label>
+          Start Reminder (min):
+          <input type="number" id="setting-task-start-reminder" min="1" max="30" value="5" style="width:80px;">
         </label>
       </div>
     </div>

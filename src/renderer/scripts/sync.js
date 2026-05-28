@@ -17,6 +17,7 @@ class MarkdownSync {
     const lines = md.split('\n');
     let currentSection = null;
     let currentParent = null; // parent task for sub-tasks
+    const claimedIds = new Set(); // track which existing task IDs have already been matched
 
     for (const line of lines) {
       const workMatch = line.match(/^##\s*工作任务/);
@@ -33,10 +34,15 @@ class MarkdownSync {
       const completed = taskMatch[2] === 'x';
       const content = taskMatch[3].trim();
 
-      const task = this._parseTaskContent(content, completed);
+      const task = this._parseTaskContent(content, completed, claimedIds);
 
       if (task) {
         task.taskType = currentSection === 'study' ? 'study' : 'work';
+
+        // Mark existing task as claimed so subsequent lines don't reuse it
+        if (this.taskManager.tasks.some(t => t.id === task.id)) {
+          claimedIds.add(task.id);
+        }
 
         // Prevent ID collision: if a previously parsed task already has this ID, generate a new one
         if (tasks.some(t => t.id === task.id)) {
@@ -95,7 +101,7 @@ class MarkdownSync {
     return tasks;
   }
 
-  _parseTaskContent(content, completed) {
+  _parseTaskContent(content, completed, claimedIds) {
     let text = content;
     let timeSlot = '';
     let scheduledDate = new Date().toISOString().slice(0, 10);
@@ -152,9 +158,12 @@ class MarkdownSync {
     const FOCUS_MIN = 25;
     const autoPomos = estimatedMinutes > 0 ? Math.ceil(estimatedMinutes / FOCUS_MIN) : 0;
 
-    // Match existing task by text+scheduledDate+timeSlot (timeSlot prevents ID collision for same-name tasks)
+    // Match existing task by text+scheduledDate only (timeSlot excluded so
+    // adjusting the time in Obsidian preserves pomodoro data). Skip tasks
+    // already claimed by earlier lines in this parse pass — same-day same-name
+    // tasks must not share pomodoro data.
     const existing = this.taskManager.tasks.find(
-      t => t.scheduledDate === scheduledDate && t.text === text && t.timeSlot === timeSlot
+      t => t.scheduledDate === scheduledDate && t.text === text && !claimedIds.has(t.id)
     );
 
     return {
@@ -182,7 +191,12 @@ class MarkdownSync {
 
   async readFromVault(dateStr) {
     if (!this.vaultPath) return false;
-    const md = await pomodoroAPI.readReportFile(this.vaultPath, this.dailyPath, dateStr);
+    let md = await pomodoroAPI.readReportFile(this.vaultPath, this.dailyPath, dateStr);
+    if (!md || md.trim() === '') {
+      // Try to create from template
+      await pomodoroAPI.ensureDailyReport(this.vaultPath, this.dailyPath, dateStr);
+      md = await pomodoroAPI.readReportFile(this.vaultPath, this.dailyPath, dateStr);
+    }
     if (!md || md.trim() === '') return false;
     const parsed = this.parseMarkdown(md);
 
