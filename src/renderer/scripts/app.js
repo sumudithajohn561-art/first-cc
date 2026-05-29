@@ -924,6 +924,9 @@ function checkIdleReminder() {
   for (const task of taskManager.tasks) {
     if (task.completed || !task.timeSlot) continue;
 
+    // 跳过有子任务的父任务——子任务各自负责提醒，避免父任务重复弹窗
+    if (!task.isSubtask && taskManager.tasks.some(t => t.isSubtask && t.parentId === task.id)) continue;
+
     const start = timeSlotToMinutes(task.timeSlot);
     const end = timeSlotToEndMinutes(task.timeSlot);
     if (!start || !end) continue;

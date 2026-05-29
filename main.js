@@ -90,6 +90,8 @@ app.on('activate', () => {
 let obsidianMonitorActive = false;
 let obsidianMonitorTimeout = null;
 let obsidianWasRunning = false;
+let obsidianGoneCount = 0;           // 连续检测不到 Obsidian 的次数
+const OBSIDIAN_GONE_THRESHOLD = 3;  // 连续 3 次（15 秒）才确认退出，防止最小化时误判
 
 function isObsidianRunning() {
   return new Promise((resolve) => {
@@ -119,6 +121,7 @@ async function obsidianMonitorTick() {
     const running = await isObsidianRunning();
     if (!obsidianWasRunning && running) {
       // Obsidian 启动了 → 显示番茄钟
+      obsidianGoneCount = 0;
       if (mainWindow && !mainWindow.isDestroyed()) {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.show();
@@ -128,9 +131,14 @@ async function obsidianMonitorTick() {
       }
     }
     if (obsidianWasRunning && !running) {
-      // Obsidian 关闭了 → 退出番茄钟
-      doQuit();
-      return; // 不再继续调度
+      // Obsidian 可能关闭了 → 连续确认后才退出（防止最小化时误判）
+      obsidianGoneCount++;
+      if (obsidianGoneCount >= OBSIDIAN_GONE_THRESHOLD) {
+        doQuit();
+        return; // 不再继续调度
+      }
+    } else {
+      obsidianGoneCount = 0;
     }
     obsidianWasRunning = running;
   } catch {
@@ -144,6 +152,7 @@ async function obsidianMonitorTick() {
 function startObsidianMonitor() {
   obsidianMonitorActive = true;
   if (obsidianMonitorTimeout) clearTimeout(obsidianMonitorTimeout);
+  obsidianGoneCount = 0;
   // 首次立即检测 Obsidian 状态，然后每5秒轮询
   obsidianMonitorTimeout = setTimeout(obsidianMonitorTick, 0);
 }
