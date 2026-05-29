@@ -224,15 +224,22 @@ function updateActiveTaskLabel() {
 function autoMatchTask() {
   const now = new Date();
   const cur = now.getHours() * 60 + now.getMinutes();
-  const match = taskManager.tasks.find(t => {
+  // 找到所有匹配当前时间的任务，优先选时间段最窄的（子任务比父任务更具体）
+  const matches = taskManager.tasks.filter(t => {
     if (t.completed || !t.timeSlot) return false;
     const m = t.timeSlot.match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
     if (!m) return false;
     return cur >= parseInt(m[1]) * 60 + parseInt(m[2])
         && cur <= parseInt(m[3]) * 60 + parseInt(m[4]);
   });
-  if (match) {
-    activeTaskId = match.id;
+  if (matches.length > 0) {
+    // 选时间段最短的（最精确匹配，优先子任务）
+    matches.sort((a, b) => {
+      const durA = timeSlotToEndMinutes(a.timeSlot) - timeSlotToMinutes(a.timeSlot);
+      const durB = timeSlotToEndMinutes(b.timeSlot) - timeSlotToMinutes(b.timeSlot);
+      return durA - durB;
+    });
+    activeTaskId = matches[0].id;
   } else if (activeTaskId) {
     // Check if current active task still matches current time
     const curTask = taskManager.tasks.find(t => t.id === activeTaskId);
@@ -258,7 +265,7 @@ function _resetReminders() {
   _upcomingTaskRemindedFor = null;
 }
 
-el.btnStart.addEventListener('click', () => { autoMatchTask(); _resetReminders(); timer.start(); updateButtonStates(); updateActiveTaskLabel(); });
+el.btnStart.addEventListener('click', () => { autoMatchTask(); _resetReminders(); timer.start(); renderTasks(); updateButtonStates(); updateActiveTaskLabel(); });
 el.btnPause.addEventListener('click', () => {
   if (timer.state === 'paused') { _resetReminders(); timer.resume(); }
   else timer.pause();
@@ -303,21 +310,71 @@ function timeSlotToEndMinutes(ts) {
   return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
 }
 
+function getFocusMinutes() {
+  try {
+    const raw = localStorage.getItem('pomodoro-settings');
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (s.focusMinutes && s.focusMinutes > 0) return s.focusMinutes;
+    }
+  } catch { /* ignore */ }
+  return 25;
+}
+
 function renderTasks() {
   el.taskTbody.innerHTML = '';
 
-  const sorted = [...taskManager.tasks].sort((a, b) => {
-    if (a.completed !== b.completed) return a.completed ? 1 : -1;
-    if (a.timeSlot && !b.timeSlot) return -1;
-    if (!a.timeSlot && b.timeSlot) return 1;
-    if (a.timeSlot && b.timeSlot) return timeSlotToMinutes(a.timeSlot) - timeSlotToMinutes(b.timeSlot);
-    return 0;
-  });
+  // 构建父子树结构
+  const parentMap = new Map();
+  const childrenMap = new Map();
 
-  for (const task of sorted) {
+  for (const task of taskManager.tasks) {
+    if (task.isSubtask && task.parentId) {
+      if (!childrenMap.has(task.parentId)) childrenMap.set(task.parentId, []);
+      childrenMap.get(task.parentId).push(task);
+    }
+    parentMap.set(task.id, task);
+  }
+
+  // 排序父任务
+  const sortedParents = [...parentMap.values()]
+    .filter(t => !t.isSubtask)
+    .sort((a, b) => {
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      if (a.timeSlot && !b.timeSlot) return -1;
+      if (!a.timeSlot && b.timeSlot) return 1;
+      if (a.timeSlot && b.timeSlot) return timeSlotToMinutes(a.timeSlot) - timeSlotToMinutes(b.timeSlot);
+      return 0;
+    });
+
+  // 展平：父任务后紧跟其子任务
+  const sorted = [];
+  for (const parent of sortedParents) {
+    sorted.push({ task: parent, depth: 0, hasChildren: childrenMap.has(parent.id) });
+    const children = (childrenMap.get(parent.id) || []).sort((a, b) => {
+      if (a.timeSlot && b.timeSlot) return timeSlotToMinutes(a.timeSlot) - timeSlotToMinutes(b.timeSlot);
+      return 0;
+    });
+    for (const child of children) {
+      sorted.push({ task: child, depth: 1, hasChildren: false });
+    }
+  }
+
+  // 追加无父任务的孤立子任务
+  for (const task of taskManager.tasks) {
+    if (task.isSubtask && !sorted.some(s => s.task.id === task.id)) {
+      sorted.push({ task: task, depth: 1, hasChildren: false });
+    }
+  }
+
+  const focusMin = getFocusMinutes();
+
+  for (const { task, depth, hasChildren } of sorted) {
     const tr = document.createElement('tr');
     if (task.completed) tr.classList.add('task-done');
     if (task.id === activeTaskId) tr.classList.add('active-task');
+    if (depth === 0 && hasChildren) tr.classList.add('task-parent');
+    if (depth === 1) tr.classList.add('task-child');
 
     // Checkbox
     const tdCheck = document.createElement('td');
@@ -364,15 +421,35 @@ function renderTasks() {
     // Task name
     const tdTask = document.createElement('td');
     tdTask.className = 'cell-task' + (task.completed ? ' completed' : '');
-    tdTask.textContent = task.text;
+    if (depth === 1) tdTask.classList.add('cell-task-child');
+    // 去除子任务名称中的父任务前缀，只显示支线任务名
+    let displayText = task.text;
+    if (depth === 1 && task.parentId) {
+      const parent = parentMap.get(task.parentId);
+      if (parent) {
+        const prefix = `${parent.text} (`;
+        if (displayText.startsWith(prefix)) {
+          displayText = displayText.slice(prefix.length).replace(/\)$/, '');
+        }
+      }
+    }
+    tdTask.textContent = displayText;
     tdTask.title = task.text;
-    if (task.isSubtask) tdTask.style.paddingLeft = '20px';
 
     // Pomodoros
     const tdPomos = document.createElement('td');
     tdPomos.className = 'cell-pomos';
     if (task.totalPomodoros > 0) {
       tdPomos.textContent = `${task.completedPomodoros}/${task.totalPomodoros}`;
+      // 显示时间余量提示
+      if (task.estimatedMinutes && focusMin > 0) {
+        const remainder = task.estimatedMinutes % focusMin;
+        if (remainder > 0) {
+          tdPomos.title = `${task.estimatedMinutes}分钟 / ${focusMin}分钟专注 = ${task.totalPomodoros}番茄 (余${remainder}分钟)`;
+        } else {
+          tdPomos.title = `${task.estimatedMinutes}分钟 / ${focusMin}分钟专注`;
+        }
+      }
     } else {
       tdPomos.textContent = '--';
       tdPomos.style.color = 'var(--text-muted)';
@@ -456,6 +533,7 @@ el.btnSyncObsidian.addEventListener('click', async () => {
   el.btnSyncObsidian.textContent = 'Syncing...';
   el.btnSyncObsidian.disabled = true;
   const ok = await markdownSync.readFromVault(currentSyncDate);
+  if (timer.state === 'running' || timer.state === 'paused') autoMatchTask();
   renderTasks();
   el.btnSyncObsidian.textContent = ok ? 'Synced ✓' : 'No report found';
   el.btnSyncObsidian.disabled = false;

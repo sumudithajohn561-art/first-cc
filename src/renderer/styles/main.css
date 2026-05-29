@@ -353,6 +353,35 @@ input, select, button { font-family: var(--font-sans); }
   opacity: 0.55;
 }
 
+/* 父任务行 */
+#task-table tbody tr.task-parent {
+  border-top: 2px solid rgba(233, 69, 96, 0.25);
+}
+
+#task-table tbody tr.task-parent .cell-task {
+  font-weight: 700;
+  font-size: 0.93rem;
+}
+
+/* 子任务行 */
+#task-table tbody tr.task-child {
+  background: rgba(22, 33, 62, 0.4);
+}
+
+#task-table tbody tr.task-child:hover {
+  background: rgba(26, 74, 122, 0.6);
+}
+
+#task-table tbody tr.task-child .cell-task-child {
+  padding-left: 24px !important;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+#task-table tbody tr.task-child .cell-time {
+  font-size: 0.78rem;
+}
+
 .col-check { width: 28px; text-align: center; }
 .col-time { width: 96px; }
 .col-pri { width: 28px; text-align: center; }

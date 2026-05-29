@@ -30,7 +30,8 @@ class MarkdownSync {
       if (!taskMatch) continue;
 
       const indent = taskMatch[1];
-      const isSubtask = indent.length >= 4;
+      // Tab 展开为 4 空格再计算缩进（Obsidian 默认 Tab 缩进）
+      const isSubtask = indent.replace(/\t/g, '    ').length >= 4;
       const completed = taskMatch[2] === 'x';
       const content = taskMatch[3].trim();
 
@@ -58,6 +59,19 @@ class MarkdownSync {
           task.priorityEmoji = task.priorityEmoji || currentParent.priorityEmoji;
           task.isSubtask = true;
           task.parentId = currentParent.id;
+          // 子任务继承父任务时间段后，重新计算番茄数
+          if (!task.estimatedMinutes && task.timeSlot) {
+            const tsMatch = task.timeSlot.match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
+            if (tsMatch) {
+              const dur = parseInt(tsMatch[3]) * 60 + parseInt(tsMatch[4]) - (parseInt(tsMatch[1]) * 60 + parseInt(tsMatch[2]));
+              if (dur > 0) {
+                task.estimatedMinutes = dur;
+                let fm = 25;
+                try { const raw = localStorage.getItem('pomodoro-settings'); if (raw) { const s = JSON.parse(raw); if (s.focusMinutes > 0) fm = s.focusMinutes; } } catch { /* ignore */ }
+                task.totalPomodoros = Math.ceil(dur / fm);
+              }
+            }
+          }
         } else if (!isSubtask) {
           // Main task: set as current parent for subsequent sub-tasks
           currentParent = task;
@@ -72,7 +86,9 @@ class MarkdownSync {
           // Detect if task was rescheduled (time slot or date changed)
           const rescheduled =
             task.timeSlot !== existing.timeSlot ||
-            task.scheduledDate !== existing.scheduledDate;
+            task.scheduledDate !== existing.scheduledDate ||
+            task.estimatedMinutes !== existing.estimatedMinutes ||
+            task.totalPomodoros !== existing.totalPomodoros;
 
           task.completedPomodoros = rescheduled ? 0 : (existing.completedPomodoros || 0);
           task.totalPomodoros = rescheduled ? task.totalPomodoros : (existing.totalPomodoros || task.totalPomodoros);
@@ -154,9 +170,16 @@ class MarkdownSync {
       }
     }
 
-    // Calculate total pomodoros (25 min each)
-    const FOCUS_MIN = 25;
-    const autoPomos = estimatedMinutes > 0 ? Math.ceil(estimatedMinutes / FOCUS_MIN) : 0;
+    // Calculate total pomodoros based on user's focus setting
+    let focusMin = 25;
+    try {
+      const raw = localStorage.getItem('pomodoro-settings');
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s.focusMinutes && s.focusMinutes > 0) focusMin = s.focusMinutes;
+      }
+    } catch { /* ignore */ }
+    const autoPomos = estimatedMinutes > 0 ? Math.ceil(estimatedMinutes / focusMin) : 0;
 
     // Match existing task by text+scheduledDate only (timeSlot excluded so
     // adjusting the time in Obsidian preserves pomodoro data). Skip tasks
@@ -177,9 +200,9 @@ class MarkdownSync {
       createdAt: existing ? existing.createdAt : new Date().toISOString(),
       completedAt: completed ? (existing ? existing.completedAt : new Date().toISOString()) : null,
       completedDate: completed ? (completedDate || new Date().toISOString().slice(0, 10)) : null,
-      estimatedMinutes: existing ? (existing.estimatedMinutes || estimatedMinutes) : estimatedMinutes,
+      estimatedMinutes: estimatedMinutes,
       completedPomodoros: existing ? existing.completedPomodoros : 0,
-      totalPomodoros: existing ? (existing.totalPomodoros || autoPomos) : autoPomos,
+      totalPomodoros: autoPomos,
       isSubtask: false,
       parentId: null,
     };

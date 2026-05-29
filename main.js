@@ -1,6 +1,14 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { exec } = require('child_process');
+
+// 单实例锁：防止多个番茄钟同时运行
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  return;
+}
 
 const dataDir = path.join(app.getPath('userData'), 'data');
 
@@ -47,11 +55,21 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
 
   mainWindow.on('close', (e) => {
-    if (isQuitting) return; // already confirmed, let it close
+    if (isQuitting) return;
     e.preventDefault();
-    mainWindow.webContents.send('before-close');
+    // 隐藏到后台，而非退出。Obsidian 进程监控负责在 Obsidian 关闭时真正退出。
+    mainWindow.hide();
   });
 }
+
+// 当第二个实例尝试启动时，聚焦已有窗口
+app.on('second-instance', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
 
 app.whenReady().then(() => {
   createWindow();
@@ -68,40 +86,66 @@ app.on('activate', () => {
   }
 });
 
-// --- Obsidian process binding ---
-let obsidianMonitorInterval = null;
+// --- Obsidian 进程绑定（异步版，不阻塞渲染进程） ---
+let obsidianMonitorActive = false;
+let obsidianMonitorTimeout = null;
 let obsidianWasRunning = false;
 
 function isObsidianRunning() {
+  return new Promise((resolve) => {
+    // 使用 PowerShell Get-Process，比 tasklist 更可靠（避免编码问题）
+    exec(
+      'powershell -NoProfile -Command "if (Get-Process -Name Obsidian -ErrorAction SilentlyContinue) { \'RUNNING\' }"',
+      (err, stdout) => {
+        if (err) { resolve(false); return; }
+        resolve(stdout.includes('RUNNING'));
+      }
+    );
+  });
+}
+
+function doQuit() {
+  if (isQuitting) return;
+  isQuitting = true;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('obsidian-closed');
+  }
+  app.quit();
+}
+
+async function obsidianMonitorTick() {
+  if (!obsidianMonitorActive) return;
   try {
-    const { execSync } = require('child_process');
-    const result = execSync('tasklist /FI "IMAGENAME eq Obsidian.exe" /NH', { encoding: 'utf-8' });
-    return result.includes('Obsidian.exe');
+    const running = await isObsidianRunning();
+    if (!obsidianWasRunning && running) {
+      // Obsidian 启动了 → 显示番茄钟
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      } else {
+        createWindow();
+      }
+    }
+    if (obsidianWasRunning && !running) {
+      // Obsidian 关闭了 → 退出番茄钟
+      doQuit();
+      return; // 不再继续调度
+    }
+    obsidianWasRunning = running;
   } catch {
-    return false;
+    // 检测失败时忽略，保持上次状态
+  }
+  if (obsidianMonitorActive) {
+    obsidianMonitorTimeout = setTimeout(obsidianMonitorTick, 5000);
   }
 }
 
 function startObsidianMonitor() {
-  if (obsidianMonitorInterval) clearInterval(obsidianMonitorInterval);
-  obsidianWasRunning = isObsidianRunning();
-  obsidianMonitorInterval = setInterval(() => {
-    const running = isObsidianRunning();
-    if (obsidianWasRunning && !running) {
-      // Obsidian was closed — gracefully quit Pomodoro
-      if (mainWindow) {
-        mainWindow.webContents.send('obsidian-closed');
-        // Delay quit to allow renderer to save state
-        setTimeout(() => {
-          isQuitting = true;
-          app.quit();
-        }, 500);
-      }
-      clearInterval(obsidianMonitorInterval);
-      obsidianMonitorInterval = null;
-    }
-    obsidianWasRunning = running;
-  }, 5000);
+  obsidianMonitorActive = true;
+  if (obsidianMonitorTimeout) clearTimeout(obsidianMonitorTimeout);
+  // 首次立即检测 Obsidian 状态，然后每5秒轮询
+  obsidianMonitorTimeout = setTimeout(obsidianMonitorTick, 0);
 }
 
 // Mini mode state
@@ -191,7 +235,7 @@ ipcMain.handle('read-report-file', (_e, vaultPath, dailyPath, dateStr) => {
   }
 });
 
-// Write daily report file (for frontmatter sync only — never touch task sections)
+// Write daily report file
 ipcMain.handle('write-report-file', (_e, vaultPath, dailyPath, dateStr, content) => {
   try {
     const filePath = getReportPath(vaultPath, dailyPath, dateStr);
@@ -206,22 +250,20 @@ ipcMain.handle('write-report-file', (_e, vaultPath, dailyPath, dateStr, content)
 ipcMain.handle('ensure-daily-report', (_e, vaultPath, dailyPath, dateStr) => {
   try {
     const reportPath = getReportPath(vaultPath, dailyPath, dateStr);
-    if (fs.existsSync(reportPath)) return true; // already exists
+    if (fs.existsSync(reportPath)) return true;
 
     const templatePath = path.join(vaultPath, '通用', 'templates', 'Templates_daily.md');
-    if (!fs.existsSync(templatePath)) return false; // no template
+    if (!fs.existsSync(templatePath)) return false;
 
     let template = fs.readFileSync(templatePath, 'utf-8');
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
     const weekday = now.getDay();
 
-    // Fill frontmatter placeholders
     template = template.replace(/^created:.*/m, `created: ${todayStr}T09:00:00`);
     template = template.replace(/^Deadline:.*/m, `Deadline: ${todayStr}T23:59:00`);
     template = template.replace(/^weekday:.*/m, `weekday: ${weekday}`);
 
-    // Ensure directory exists
     const dir = path.dirname(reportPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -232,7 +274,7 @@ ipcMain.handle('ensure-daily-report', (_e, vaultPath, dailyPath, dateStr) => {
   }
 });
 
-// --- File watcher (polls the daily report file for changes) ---
+// --- File watcher ---
 let activeWatchInterval = null;
 let activeWatchPath = null;
 let activeWatchMtime = 0;
