@@ -25,4 +25,7 @@ contextBridge.exposeInMainWorld('pomodoroAPI', {
   watchReportFile: (vaultPath, dailyPath, dateStr) => ipcRenderer.invoke('watch-report-file', vaultPath, dailyPath, dateStr),
   unwatchFile: () => ipcRenderer.invoke('unwatch-file'),
   onFileChanged: (callback) => ipcRenderer.on('file-changed', (_event, dateStr) => callback(dateStr)),
+
+  // Obsidian 启动 → 番茄钟弹出后，通知渲染进程检查日期更新
+  onCheckDateChange: (callback) => ipcRenderer.on('check-date-change', callback),
 });

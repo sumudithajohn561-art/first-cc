@@ -4,3 +4,16 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+
+# 测试和临时文件
+.playwright-mcp/
+snapshot_home.yml
+
+# 个人敏感数据（运行时数据在 %APPDATA%/pomodoro-timer/data/，此处防误提交）
+data/
+
+# 项目无关文件
+.claude/
+form_image.png
+generate_ppt.py
+标书检视工具_内容.txt

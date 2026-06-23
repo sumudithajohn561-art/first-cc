@@ -10,9 +10,9 @@
   <div id="app-container">
     <header id="header">
       <div id="header-left">
-        <h1>Pomodoro Timer</h1>
-        <button id="btn-toggle-settings" class="btn-icon" title="Settings">⚙</button>
-        <button id="btn-toggle-mini" class="btn-icon" title="Mini Mode">⊟</button>
+        <h1>🍅 番茄钟</h1>
+        <button id="btn-toggle-settings" class="btn-icon" title="设置">⚙</button>
+        <button id="btn-toggle-mini" class="btn-icon" title="迷你模式">⊟</button>
       </div>
       <div id="header-right">
         <span id="current-date"></span>
@@ -41,19 +41,22 @@
       </div>
       <div id="session-counter">Session 1 / 4</div>
       <div id="break-tip" class="break-tip hidden"></div>
+      <div id="break-calc" class="break-calc hidden">
+        <span id="break-calc-text"></span>
+      </div>
       <div id="goal-progress" class="goal-progress">
         <span id="goal-dots"></span>
         <span id="goal-label"></span>
       </div>
       <div class="timer-controls">
-        <button id="btn-start" class="btn btn-primary">Start</button>
-        <button id="btn-pause" class="btn btn-secondary" disabled>Pause</button>
-        <button id="btn-reset" class="btn btn-outline">Reset</button>
-        <button id="btn-skip" class="btn btn-outline">Skip</button>
-        <button id="btn-distraction" class="btn btn-outline btn-sm" title="Record a distraction">Distraction (<span id="distraction-count">0</span>)</button>
-        <label id="auto-continue-label" class="auto-continue-toggle" title="Auto-start next session after saving">
+        <button id="btn-start" class="btn btn-primary">开始</button>
+        <button id="btn-pause" class="btn btn-secondary" disabled>暂停</button>
+        <button id="btn-reset" class="btn btn-outline">重置</button>
+        <button id="btn-skip" class="btn btn-outline">跳过</button>
+        <button id="btn-distraction" class="btn btn-outline btn-sm" title="记录一次分心">分心 (<span id="distraction-count">0</span>)</button>
+        <label id="auto-continue-label" class="auto-continue-toggle" title="保存后自动开始下一段">
           <input type="checkbox" id="auto-continue-checkbox">
-          <span>Auto</span>
+          <span>自动</span>
         </label>
       </div>
     </section>
@@ -61,41 +64,41 @@
     <div class="stats-bar">
       <div class="stat-item">
         <span class="stat-value" id="stat-today">0</span>
-        <span class="stat-label">Today</span>
+        <span class="stat-label">今日</span>
       </div>
       <div class="stat-item">
         <span class="stat-value" id="stat-week">0</span>
-        <span class="stat-label">This Week</span>
+        <span class="stat-label">本周</span>
       </div>
       <div class="stat-item">
         <span class="stat-value" id="stat-total">0</span>
-        <span class="stat-label">All Time</span>
+        <span class="stat-label">总计</span>
       </div>
       <div class="stat-item">
         <span class="stat-value" id="focus-rating" style="font-size:1rem; letter-spacing:2px;">☆☆☆☆☆</span>
-        <span class="stat-label">Focus</span>
+        <span class="stat-label">效率</span>
       </div>
     </div>
 
     <div id="panels">
       <section id="tasks-panel" class="panel">
         <div class="panel-header">
-          <h2>Tasks</h2>
+          <h2>任务列表</h2>
           <span id="task-count" class="count-badge">0</span>
         </div>
         <div class="task-actions">
-          <button id="btn-sync-obsidian" class="btn btn-outline btn-sm">Sync from Obsidian</button>
+          <button id="btn-sync-obsidian" class="btn btn-outline btn-sm">从 Obsidian 同步</button>
         </div>
         <div class="task-table-wrap">
           <table id="task-table">
             <thead>
               <tr>
                 <th class="col-check"></th>
-                <th class="col-time">Time</th>
+                <th class="col-time">时间</th>
                 <th class="col-pri">!</th>
-                <th class="col-task">Task</th>
+                <th class="col-task">任务</th>
                 <th class="col-pomos">🍅</th>
-                <th class="col-status">Status</th>
+                <th class="col-status">状态</th>
                 <th class="col-del"></th>
               </tr>
             </thead>
@@ -111,12 +114,11 @@
   <!-- Quick Record Overlay -->
   <div id="quick-record-overlay" class="overlay hidden">
     <div class="quick-record-card">
-      <h3>What did you accomplish?</h3>
+      <h3>这个番茄你完成了什么？<span style="color:var(--danger);">*</span></h3>
       <div id="quick-record-overtime-hint" class="overtime-hint hidden"></div>
-      <textarea id="quick-record-input" placeholder="Jot down what you got done this session..." rows="3"></textarea>
+      <textarea id="quick-record-input" placeholder="请记录这个时段的工作/学习内容..." rows="3"></textarea>
       <div class="quick-record-actions">
-        <button id="btn-quick-save" class="btn btn-primary btn-sm">Save</button>
-        <button id="btn-quick-skip" class="btn btn-outline btn-sm">Skip</button>
+        <button id="btn-quick-save" class="btn btn-primary btn-sm" disabled>保存并继续</button>
       </div>
     </div>
   </div>

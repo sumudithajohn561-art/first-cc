@@ -76,7 +76,6 @@ const el = {
   quickRecordInput: document.getElementById('quick-record-input'),
   quickRecordOvertimeHint: document.getElementById('quick-record-overtime-hint'),
   btnQuickSave: document.getElementById('btn-quick-save'),
-  btnQuickSkip: document.getElementById('btn-quick-skip'),
   taskCompleteOverlay: document.getElementById('task-complete-overlay'),
   taskCompleteTitle: document.getElementById('task-complete-title'),
   taskCompleteRecords: document.getElementById('task-complete-records'),
@@ -110,6 +109,8 @@ const el = {
   btnMiniRestore: document.getElementById('btn-mini-restore'),
   autoContinueCheckbox: document.getElementById('auto-continue-checkbox'),
   breakTip: document.getElementById('break-tip'),
+  breakCalc: document.getElementById('break-calc'),
+  breakCalcText: document.getElementById('break-calc-text'),
 };
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 80;
@@ -131,8 +132,8 @@ timer.onTick = () => {
 timer.onSessionChange = () => {
   el.sessionCounter.textContent = timer.sessionDisplay;
   el.sessionBadge.textContent =
-    timer.sessionType === 'focus' ? 'Focus' :
-    timer.sessionType === 'break' ? 'Break' : 'Long Break';
+    timer.sessionType === 'focus' ? '专注' :
+    timer.sessionType === 'break' ? '休息' : '长休息';
   el.sessionBadge.className =
     timer.sessionType === 'focus' ? 'badge-focus' :
     timer.sessionType === 'break' ? 'badge-break' : 'badge-long-break';
@@ -154,9 +155,9 @@ timer.onDone = (sessionType, minutes) => {
       taskManager.incrementPomodoro(activeTaskId);
       renderTasks();
     }
-    pomodoroAPI.notify('Focus Complete!', `Time for a break.`);
+    pomodoroAPI.notify('专注完成！', '休息一下吧。');
   } else {
-    pomodoroAPI.notify('Break Over!', 'Ready to start the next focus session.');
+    pomodoroAPI.notify('休息结束！', '准备开始下一段专注。');
   }
   playTickSound();
 
@@ -197,7 +198,7 @@ function updateButtonStates() {
   const running = s === 'running';
   el.btnStart.disabled = running || s === 'done' || s === 'paused';
   el.btnPause.disabled = s === 'idle' || s === 'done';
-  el.btnPause.textContent = s === 'paused' ? 'Resume' : 'Pause';
+  el.btnPause.textContent = s === 'paused' ? '继续' : '暂停';
   if (s === 'paused') {
     el.btnPause.classList.add('btn-primary');
     el.btnPause.classList.remove('btn-secondary');
@@ -207,14 +208,40 @@ function updateButtonStates() {
   }
 }
 
+function updateBreakCalc() {
+  if (activeTaskId) {
+    const task = taskManager.tasks.find(t => t.id === activeTaskId);
+    if (task && task.estimatedMinutes && task.estimatedMinutes > 0) {
+      const fm = getFocusMinutes();
+      const bm = timer.settings.breakMinutes || 5;
+      const calc = calcTotalDuration(task.estimatedMinutes, fm, bm);
+      const workMin = task.estimatedMinutes;
+      const totalMin = calc.total;
+      const workH = Math.floor(workMin / 60);
+      const workM = workMin % 60;
+      const totalH = Math.floor(totalMin / 60);
+      const totalM = totalMin % 60;
+      let workStr = workH > 0 ? `${workH}小时` : '';
+      workStr += workM > 0 ? `${workM}分钟` : '';
+      let totalStr = totalH > 0 ? `${totalH}小时` : '';
+      totalStr += totalM > 0 ? `${totalM}分钟` : '';
+      el.breakCalcText.textContent = `计划工作: ${workStr} → 含休息总时长: ${totalStr} (${calc.segments}个番茄)`;
+      el.breakCalc.classList.remove('hidden');
+      return;
+    }
+  }
+  el.breakCalc.classList.add('hidden');
+}
+
 function updateActiveTaskLabel() {
   if (activeTaskId && timer.state === 'running') {
     const task = taskManager.tasks.find(t => t.id === activeTaskId);
-    el.activeTaskLabel.textContent = task ? `Focusing: ${task.text}` : '';
+    el.activeTaskLabel.textContent = task ? `专注中: ${task.text}` : '';
   } else {
     el.activeTaskLabel.textContent = '';
   }
   updateMiniTaskLabel();
+  updateBreakCalc();
 }
 
 // ====================================================================
@@ -459,23 +486,23 @@ function renderTasks() {
     const tdStatus = document.createElement('td');
     tdStatus.className = 'cell-status';
     if (task.completed) {
-      tdStatus.textContent = 'Done';
+      tdStatus.textContent = '已完成';
       tdStatus.classList.add('status-done');
     } else if (task.id === activeTaskId && (timer.state === 'running' || timer.state === 'paused')) {
       const isOvertime = task.timeSlot && timeSlotToEndMinutes(task.timeSlot) > 0 &&
         new Date().getHours() * 60 + new Date().getMinutes() > timeSlotToEndMinutes(task.timeSlot);
       if (isOvertime) {
-        tdStatus.textContent = 'Overtime';
+        tdStatus.textContent = '超时';
         tdStatus.classList.add('status-overtime');
       } else if (timer.state === 'running') {
-        tdStatus.textContent = 'Running';
+        tdStatus.textContent = '进行中';
         tdStatus.classList.add('status-active');
       } else {
-        tdStatus.textContent = 'Paused';
+        tdStatus.textContent = '已暂停';
         tdStatus.classList.add('status-active');
       }
     } else {
-      tdStatus.textContent = 'Pending';
+      tdStatus.textContent = '待开始';
       tdStatus.classList.add('status-pending');
     }
 
@@ -526,19 +553,19 @@ let _syncFeedbackTimer = null;
 
 el.btnSyncObsidian.addEventListener('click', async () => {
   if (!markdownSync || !markdownSync.vaultPath) {
-    alert('Please configure your Obsidian Vault path in Settings first.');
+    alert('请先在设置中配置 Obsidian Vault 路径。');
     return;
   }
   clearTimeout(_syncFeedbackTimer);
-  el.btnSyncObsidian.textContent = 'Syncing...';
+  el.btnSyncObsidian.textContent = '同步中...';
   el.btnSyncObsidian.disabled = true;
   const ok = await markdownSync.readFromVault(currentSyncDate);
   if (timer.state === 'running' || timer.state === 'paused') autoMatchTask();
   renderTasks();
-  el.btnSyncObsidian.textContent = ok ? 'Synced ✓' : 'No report found';
+  el.btnSyncObsidian.textContent = ok ? '已同步 ✓' : '未找到日报';
   el.btnSyncObsidian.disabled = false;
   _syncFeedbackTimer = setTimeout(() => {
-    el.btnSyncObsidian.textContent = 'Sync from Obsidian';
+    el.btnSyncObsidian.textContent = '从 Obsidian 同步';
     _syncFeedbackTimer = null;
   }, 5000);
 });
@@ -561,8 +588,33 @@ function renderFocusRating() {
   const today = statsTracker.getTodayStats();
   const distractions = today.distractions || 0;
   const completed = today.completedPomodoros || 0;
-  const rate = dailyGoal > 0 ? Math.max(0, (completed - distractions) / dailyGoal) * 100 : 0;
+  // 计算今日所有任务的总计划番茄数和跳过的总结数
+  let totalPlanned = 0;
+  let skippedSummaries = 0;
+  let interruptedPomodoros = 0;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  for (const task of taskManager.tasks) {
+    if (task.scheduledDate === todayStr && task.totalPomodoros > 0) {
+      totalPlanned += task.totalPomodoros;
+      // 检查分段小结：完成的番茄中哪些没有小结
+      if (task.segmentLogs) {
+        const loggedSegments = task.segmentLogs.length;
+        if (task.completedPomodoros > loggedSegments) {
+          skippedSummaries += task.completedPomodoros - loggedSegments;
+        }
+      } else if (task.completedPomodoros > 0) {
+        skippedSummaries += task.completedPomodoros;
+      }
+    }
+  }
+  // 效率 = (完成番茄 - 扣分) / max(已计划, 完成) * 100%
+  const base = Math.max(totalPlanned, completed);
+  const deductions = distractions + skippedSummaries * 0.5 + interruptedPomodoros;
+  const rate = base > 0 ? Math.max(0, ((completed - deductions) / base) * 100) : 0;
   el.focusRating.textContent = rateToStars(rate);
+  // 保存今日效率评分到 stats（供 Obsidian 同步使用）
+  statsTracker.data.daily[todayStr] = statsTracker.data.daily[todayStr] || {};
+  statsTracker.data.daily[todayStr].efficiencyRate = Math.round(rate);
 }
 
 // ====================================================================
@@ -613,6 +665,7 @@ function showQuickRecord() {
   _pendingQuickRecordTaskId = activeTaskId;
   el.quickRecordOverlay.classList.remove('hidden');
   el.quickRecordInput.value = '';
+  el.btnQuickSave.disabled = true;
   // Show overtime hint if active task has exceeded its time slot
   if (activeTaskId) {
     const task = taskManager.tasks.find(t => t.id === activeTaskId);
@@ -621,7 +674,7 @@ function showQuickRecord() {
       const cur = new Date().getHours() * 60 + new Date().getMinutes();
       if (end > 0 && cur > end) {
         const overtimeMins = cur - end;
-        el.quickRecordOvertimeHint.textContent = `该任务超时约 ${overtimeMins} 分钟完成，建议在 Obsidian 中更新时间段`;
+        el.quickRecordOvertimeHint.textContent = `⚠️ 该任务超时约 ${overtimeMins} 分钟，实际结束时间需要考虑休息时间`;
         el.quickRecordOvertimeHint.classList.remove('hidden');
       } else {
         el.quickRecordOvertimeHint.classList.add('hidden');
@@ -654,24 +707,40 @@ function _afterQuickRecord() {
   }
 }
 
-el.btnQuickSave.addEventListener('click', () => {
-  const text = el.quickRecordInput.value.trim();
-  if (text) {
-    statsTracker.recordQuickNote(text, _pendingQuickRecordTaskId);
-  }
-  _afterQuickRecord();
+// 输入时启用/禁用保存按钮
+el.quickRecordInput.addEventListener('input', () => {
+  el.btnQuickSave.disabled = el.quickRecordInput.value.trim() === '';
 });
 
-el.btnQuickSkip.addEventListener('click', () => {
+el.btnQuickSave.addEventListener('click', () => {
+  const text = el.quickRecordInput.value.trim();
+  if (!text) return; // 不允许空提交
+  statsTracker.recordQuickNote(text, _pendingQuickRecordTaskId);
+  // 保存分段小结到任务
+  if (_pendingQuickRecordTaskId) {
+    const task = taskManager.tasks.find(t => t.id === _pendingQuickRecordTaskId);
+    if (task) {
+      if (!task.segmentLogs) task.segmentLogs = [];
+      task.segmentLogs.push({
+        segment: (task.segmentLogs.length || 0) + 1,
+        summary: text,
+        timestamp: new Date().toISOString(),
+      });
+      taskManager._save();
+    }
+  }
   _afterQuickRecord();
 });
 
 el.quickRecordInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.ctrlKey) {
-    el.btnQuickSave.click();
-  } else if (e.key === 'Escape') {
-    hideQuickRecord();
+    if (!el.btnQuickSave.disabled) el.btnQuickSave.click();
   }
+});
+
+// 阻止点击遮罩关闭（强制输入）
+el.quickRecordOverlay.addEventListener('click', (e) => {
+  // 只有点击遮罩本身才忽略，点击卡片内正常处理
 });
 
 // ====================================================================
@@ -681,12 +750,23 @@ el.quickRecordInput.addEventListener('keydown', (e) => {
 function showTaskCompleteModal(task) {
   _pendingCompleteTask = task;
   el.taskCompleteOverlay.classList.remove('hidden');
-  el.taskCompleteTitle.textContent = `Complete: ${task.text}`;
+  el.taskCompleteTitle.textContent = `完成任务: ${task.text}`;
 
+  // 显示分段小结记录
   const records = statsTracker.getTaskQuickRecords(task.id);
   const recordsDiv = el.taskCompleteRecords;
   recordsDiv.innerHTML = '';
-  if (records.length > 0) {
+  const allRecords = [];
+  // 优先用 segmentLogs（结构化数据）
+  if (task.segmentLogs && task.segmentLogs.length > 0) {
+    task.segmentLogs.forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'task-record-item';
+      div.innerHTML = `<span class="task-record-time">段${r.segment}</span>${r.summary}`;
+      recordsDiv.appendChild(div);
+      allRecords.push(r.summary);
+    });
+  } else if (records.length > 0) {
     records.forEach(r => {
       const div = document.createElement('div');
       div.className = 'task-record-item';
@@ -694,21 +774,27 @@ function showTaskCompleteModal(task) {
       const ts = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
       div.innerHTML = `<span class="task-record-time">${ts}</span>${r.text}`;
       recordsDiv.appendChild(div);
+      allRecords.push(r.text);
     });
   }
 
-  if (task.text.includes('项目')) {
+  // 预填汇总内容
+  const aggregated = allRecords.length > 0
+    ? allRecords.map((s, i) => `${i + 1}. ${s}`).join('\n')
+    : '';
+
+  if (isWorkTask(task.text)) {
     el.taskCompleteStudyFields.classList.add('hidden');
     el.taskCompleteWorkFields.classList.remove('hidden');
-    el.taskFieldProgress.value = '';
-    el.taskFieldIssues.value = '';
-    el.taskFieldNextSteps.value = '';
-    el.taskFieldResources.value = '';
+    el.taskFieldProgress.value = aggregated || '';
+    el.taskFieldIssues.value = task.summary?.issues || '';
+    el.taskFieldNextSteps.value = task.summary?.nextSteps || '';
+    el.taskFieldResources.value = task.summary?.resources || '';
     el.taskFieldProgress.focus();
   } else {
     el.taskCompleteWorkFields.classList.add('hidden');
     el.taskCompleteStudyFields.classList.remove('hidden');
-    el.taskCompleteSummary.value = '';
+    el.taskCompleteSummary.value = aggregated || '';
     el.taskCompleteSummary.focus();
   }
 }
@@ -727,20 +813,19 @@ el.btnTaskCompleteSave.addEventListener('click', async () => {
   const task = _pendingCompleteTask;
   if (!task) return;
 
-  if (task.text.includes('项目')) {
+  if (isWorkTask(task.text)) {
     const progress = el.taskFieldProgress.value.trim();
     if (!progress) {
       el.taskFieldProgress.style.borderColor = 'var(--danger)';
       el.taskFieldProgress.focus();
       return;
     }
-    const summary = {
+    task.summary = {
       progress,
       issues: el.taskFieldIssues.value.trim(),
       nextSteps: el.taskFieldNextSteps.value.trim(),
       resources: el.taskFieldResources.value.trim(),
     };
-    task.summary = summary;
   } else {
     const summary = el.taskCompleteSummary.value.trim();
     if (!summary) {
@@ -751,14 +836,21 @@ el.btnTaskCompleteSave.addEventListener('click', async () => {
     task.summary = summary;
   }
 
-  taskManager._save();
+  // 本地立即标记完成（toggle 会自动设置 completedDate 保护字段）
   taskManager.toggle(task.id);
-  renderTasks();
+  taskManager._save();
   hideTaskCompleteModal();
+  renderTasks();
 
+  // 同步到 Obsidian（必须 await 顺序执行，否则并发写会互相覆盖）
   if (markdownSync && markdownSync.vaultPath) {
-    await markdownSync.writeTaskSummary(currentSyncDate, task);
-    await markdownSync.writeTaskCheckbox(currentSyncDate, task, true);
+    markdownSync._suppressWatch = true;
+    try {
+      await markdownSync.writeTaskSummary(currentSyncDate, task);
+      await markdownSync.writeTaskCheckbox(currentSyncDate, task, true);
+    } finally {
+      setTimeout(() => { markdownSync._suppressWatch = false; }, 3000);
+    }
   }
 });
 
@@ -799,7 +891,7 @@ function showTaskReviewModal(task) {
     });
   }
 
-  if (task.text.includes('项目') && typeof task.summary === 'object') {
+  if (isWorkTask(task.text) && typeof task.summary === 'object') {
     el.taskReviewStudyFields.classList.add('hidden');
     el.taskReviewWorkFields.classList.remove('hidden');
     el.taskReviewProgress.textContent = task.summary.progress || '(No entry)';
@@ -902,7 +994,7 @@ function checkTaskReminder() {
   if (remaining <= taskReminderMinutes && remaining > 0) {
     if (_taskReminderFiredForTask !== task.id) {
       _taskReminderFiredForTask = task.id;
-      pomodoroAPI.notify('任务即将到期', `${task.text}\n还有约 ${remaining} 分钟 (${task.timeSlot} 截止)`);
+      pomodoroAPI.notify('任务即将到期', `${task.text}\n还剩约 ${remaining} 分钟 (${task.timeSlot} 截止)`);
     }
   } else if (remaining <= 0 && remaining >= -1) {
     // Task time slot just ended but timer is still running
@@ -1212,7 +1304,7 @@ document.addEventListener('keydown', (e) => {
 
 pomodoroAPI.onBeforeClose(() => {
   if (timer.state === 'running' || timer.state === 'paused') {
-    const leave = confirm('A timer is still active. Are you sure you want to quit?');
+    const leave = confirm('计时器仍在运行，确定要退出吗？');
     if (leave) pomodoroAPI.confirmClose();
   } else {
     pomodoroAPI.confirmClose();
@@ -1269,7 +1361,7 @@ async function init() {
   if (timer.onTick) timer.onTick();
   if (timer.onSessionChange) timer.onSessionChange();
 
-  // Midnight rollover + reminder check
+  // 跨天检测 + 提醒检查（只在日期变更时同步 Obsidian，不做无谓的覆盖）
   setInterval(() => {
     const now = new Date();
     const today = now.toISOString().slice(0, 10).replace(/-/g, '');
@@ -1281,9 +1373,30 @@ async function init() {
       if (markdownSync && markdownSync.vaultPath) {
         markdownSync.switchDate(today);
       }
+      renderTasks();
+      renderStats();
+      renderGoalProgress();
+      renderDistractionCount();
     }
     checkReminder();
   }, 60000);
+
+  // Obsidian 启动后，主进程通知立即同步当日数据
+  pomodoroAPI.onCheckDateChange(async () => {
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10).replace(/-/g, '');
+    if (today !== currentSyncDate) {
+      currentSyncDate = today;
+      updateDateDisplay();
+    }
+    if (markdownSync && markdownSync.vaultPath) {
+      await markdownSync.switchDate(currentSyncDate);
+    }
+    renderTasks();
+    renderStats();
+    renderGoalProgress();
+    renderDistractionCount();
+  });
 
   // Idle + upcoming task reminder check — runs every 30s independently of timer state
   setInterval(() => { checkIdleReminder(); checkUpcomingTask(); }, 30000);

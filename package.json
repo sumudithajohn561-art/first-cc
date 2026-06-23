@@ -6,7 +6,11 @@
   "scripts": {
     "start": "electron ."
   },
-  "keywords": ["pomodoro", "timer", "productivity"],
+  "keywords": [
+    "pomodoro",
+    "timer",
+    "productivity"
+  ],
   "author": "sumudithajohn561-art <sumudithajohn561@gmail.com>",
   "license": "MIT",
   "devDependencies": {

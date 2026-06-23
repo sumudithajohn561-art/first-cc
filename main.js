@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
@@ -38,6 +38,10 @@ let mainWindow = null;
 let isQuitting = false;
 
 function createWindow() {
+  // 防御：销毁所有旧窗口，防止多窗口泄漏
+  BrowserWindow.getAllWindows().forEach(w => {
+    if (!w.isDestroyed()) w.destroy();
+  });
   mainWindow = new BrowserWindow({
     width: 1024,
     height: 680,
@@ -95,14 +99,11 @@ const OBSIDIAN_GONE_THRESHOLD = 3;  // 连续 3 次（15 秒）才确认退出�
 
 function isObsidianRunning() {
   return new Promise((resolve) => {
-    // 使用 PowerShell Get-Process，比 tasklist 更可靠（避免编码问题）
-    exec(
-      'powershell -NoProfile -Command "if (Get-Process -Name Obsidian -ErrorAction SilentlyContinue) { \'RUNNING\' }"',
-      (err, stdout) => {
-        if (err) { resolve(false); return; }
-        resolve(stdout.includes('RUNNING'));
-      }
-    );
+    // tasklist 比 PowerShell Get-Process 启动更快，避免冷启动延迟
+    exec('tasklist /FI "IMAGENAME eq Obsidian.exe" /NH', { encoding: 'utf-8' }, (err, stdout) => {
+      if (err) { resolve(false); return; }
+      resolve(stdout.includes('Obsidian.exe'));
+    });
   });
 }
 
@@ -126,19 +127,26 @@ async function obsidianMonitorTick() {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.show();
         mainWindow.focus();
+        mainWindow.webContents.send('check-date-change');
       } else {
         createWindow();
       }
-    }
-    if (obsidianWasRunning && !running) {
-      // Obsidian 可能关闭了 → 连续确认后才退出（防止最小化时误判）
-      obsidianGoneCount++;
-      if (obsidianGoneCount >= OBSIDIAN_GONE_THRESHOLD) {
-        doQuit();
-        return; // 不再继续调度
-      }
-    } else {
+    } else if (obsidianWasRunning && !running) {
+      // Obsidian 刚关闭 → 开始计数（排除最小化时的瞬时消失）
+      obsidianGoneCount = 1;
+    } else if (obsidianWasRunning && running) {
+      // Obsidian 持续运行 → 清零计数器
       obsidianGoneCount = 0;
+    } else {
+      // !obsidianWasRunning && !running：Obsidian 持续不在
+      // 只有之前已经触发过"刚关闭"（goneCount>0）才继续累加
+      if (obsidianGoneCount > 0) {
+        obsidianGoneCount++;
+        if (obsidianGoneCount >= OBSIDIAN_GONE_THRESHOLD) {
+          doQuit();
+          return; // 不再继续调度
+        }
+      }
     }
     obsidianWasRunning = running;
   } catch {
@@ -277,6 +285,13 @@ ipcMain.handle('ensure-daily-report', (_e, vaultPath, dailyPath, dateStr) => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
     fs.writeFileSync(reportPath, template, 'utf-8');
+
+    // 通过 Obsidian URI 通知 Obsidian 打开新创建的日记
+    const vaultName = path.basename(vaultPath);
+    const relativeFile = path.join(dailyPath, `${dateStr}.md`).replace(/\\/g, '/');
+    const uri = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(relativeFile)}`;
+    shell.openExternal(uri).catch(() => { /* Obsidian 未安装时忽略 */ });
+
     return true;
   } catch {
     return false;

@@ -1,3 +1,20 @@
+// 任务分类工具函数：识别"工作："前缀
+function isWorkTask(text) {
+  return /^工作[：:]/.test(text) || text.includes('工作：') || text.includes('工作:');
+}
+
+// 休息时间自动推算：纯工作时长 + 休息 = 实际总时长
+function calcTotalDuration(workMinutes, focusMin, breakMin) {
+  const fm = focusMin || 25;
+  const bm = breakMin || 5;
+  const segments = Math.max(1, Math.ceil(workMinutes / fm));
+  const breaks = segments - 1; // 最后一段后不休息
+  const totalWork = segments * fm;
+  const totalBreak = breaks * bm;
+  const total = totalWork + totalBreak;
+  return { segments, totalWork, totalBreak, total };
+}
+
 class MarkdownSync {
   constructor(taskManager, vaultPath, dailyPath) {
     this.taskManager = taskManager;
@@ -38,7 +55,7 @@ class MarkdownSync {
       const task = this._parseTaskContent(content, completed, claimedIds);
 
       if (task) {
-        task.taskType = currentSection === 'study' ? 'study' : 'work';
+        task.taskType = isWorkTask(task.text) ? 'work' : 'study';
 
         // Mark existing task as claimed so subsequent lines don't reuse it
         if (this.taskManager.tasks.some(t => t.id === task.id)) {
@@ -83,6 +100,9 @@ class MarkdownSync {
         const existing = this.taskManager.tasks.find(t => t.id === task.id);
         if (existing) {
           task.createdAt = existing.createdAt;
+          // 保留分段小结和汇总，不被 Obsidian 覆盖
+          task.segmentLogs = existing.segmentLogs || [];
+          if (existing.summary && !task.summary) task.summary = existing.summary;
           // Detect if task was rescheduled (time slot or date changed)
           const rescheduled =
             task.timeSlot !== existing.timeSlot ||
@@ -100,14 +120,12 @@ class MarkdownSync {
             task.completedAt = null;
             task.completedDate = null;
           } else if (!completed && existing.completed) {
-            // Only preserve local completion if markdown still has ✅ date;
-            // if user removed both [x] and ✅, they intentionally unchecked in Obsidian
-            if (task.completedDate) {
+            // 本地已标记完成，保护不被 Obsidian 覆盖
+            if (task.completedDate || existing.completedDate) {
               task.completed = true;
-              task.completedAt = existing.completedAt;
-              task.completedDate = existing.completedDate;
+              task.completedAt = existing.completedAt || task.completedAt;
+              task.completedDate = task.completedDate || existing.completedDate;
             }
-            // else: markdown is authoritative — keep completed=false
           }
         }
 
@@ -181,13 +199,18 @@ class MarkdownSync {
     } catch { /* ignore */ }
     const autoPomos = estimatedMinutes > 0 ? Math.ceil(estimatedMinutes / focusMin) : 0;
 
-    // Match existing task by text+scheduledDate only (timeSlot excluded so
-    // adjusting the time in Obsidian preserves pomodoro data). Skip tasks
-    // already claimed by earlier lines in this parse pass — same-day same-name
-    // tasks must not share pomodoro data.
-    const existing = this.taskManager.tasks.find(
-      t => t.scheduledDate === scheduledDate && t.text === text && !claimedIds.has(t.id)
-    );
+    // 匹配已有任务：优先时间段+日期，次选名称+日期。改名称不丢番茄数据。
+    let existing = null;
+    if (timeSlot) {
+      existing = this.taskManager.tasks.find(
+        t => t.scheduledDate === scheduledDate && t.timeSlot === timeSlot && !claimedIds.has(t.id)
+      );
+    }
+    if (!existing) {
+      existing = this.taskManager.tasks.find(
+        t => t.scheduledDate === scheduledDate && t.text === text && !claimedIds.has(t.id)
+      );
+    }
 
     return {
       id: existing ? existing.id : this._generateId(),
@@ -214,6 +237,8 @@ class MarkdownSync {
 
   async readFromVault(dateStr) {
     if (!this.vaultPath) return false;
+    // 写入 Obsidian 期间跳过所有 re-sync，防止中间态覆盖本地数据
+    if (this._suppressWatch) return false;
     let md = await pomodoroAPI.readReportFile(this.vaultPath, this.dailyPath, dateStr);
     if (!md || md.trim() === '') {
       // Try to create from template
@@ -223,17 +248,19 @@ class MarkdownSync {
     if (!md || md.trim() === '') return false;
     const parsed = this.parseMarkdown(md);
 
-    // Obsidian checkbox state is authoritative — update local state to match
+    // Obsidian checkbox 是权威状态，但本地刚完成的标记受保护
     for (const pTask of parsed) {
       const local = this.taskManager.tasks.find(t => t.id === pTask.id);
       if (local) {
         if (!pTask.completed && local.completed) {
-          // User unchecked in Obsidian — revert local completion
-          local.completed = false;
-          local.completedAt = null;
-          local.completedDate = null;
-          local.summary = null;
-          this.taskManager._save();
+          // 如果本地有 completedDate（刚在番茄钟中标记完成但尚未同步到 Obsidian），保留完成状态
+          if (!local.completedDate) {
+            local.completed = false;
+            local.completedAt = null;
+            local.completedDate = null;
+            local.summary = null;
+            this.taskManager._save();
+          }
         }
       }
     }
@@ -302,13 +329,9 @@ class MarkdownSync {
       }
     }
 
-    this._suppressWatch = true;
     const updated = lines.join('\n');
-    if (updated === md) { this._suppressWatch = false; return false; }
-    const result = await pomodoroAPI.writeReportFile(this.vaultPath, this.dailyPath, dateStr, updated);
-    // Re-enable watcher after a short delay (allow FS event to pass)
-    setTimeout(() => { this._suppressWatch = false; }, 500);
-    return result;
+    if (updated === md) return false;
+    return await pomodoroAPI.writeReportFile(this.vaultPath, this.dailyPath, dateStr, updated);
   }
 
   // ====================================================================
@@ -331,9 +354,10 @@ class MarkdownSync {
   }
 
   async switchDate(newDateStr) {
+    // 先读取（当天日记不存在会自动从模板创建），再建立文件监听
+    const ok = await this.readFromVault(newDateStr);
     await this.startWatching(newDateStr);
-    await this.readFromVault(newDateStr);
-    if (this.onTasksChanged) this.onTasksChanged();
+    if (ok && this.onTasksChanged) this.onTasksChanged();
   }
 
   // ====================================================================
@@ -349,7 +373,7 @@ class MarkdownSync {
     const summary = task.summary;
     let entries;
 
-    if (task.text.includes('项目') && summary && typeof summary === 'object') {
+    if (isWorkTask(task.text) && summary && typeof summary === 'object') {
       entries = [
         `- ${task.text}：`,
         `    - 工作进展：${summary.progress || ''}`,
@@ -362,8 +386,8 @@ class MarkdownSync {
       entries = [`- ${task.text}：${text}`];
     }
 
-    // Project tasks ("项目") → （1）工作总结, all others → （2）学习总结
-    const pattern = task.text.includes('项目')
+    // 工作任务 → （1）工作总结, 其余 → （2）学习总结
+    const pattern = isWorkTask(task.text)
       ? /^##\s*（1）\s*工作总结/
       : /^##\s*（2）\s*学习总结/;
 
